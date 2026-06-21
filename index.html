@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>MarkMind PDF</title>
+  <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          borderRadius: { '4xl': '2rem', '5xl': '2.5rem' },
+          typography: {
+            DEFAULT: { css: { maxWidth: 'none' } },
+          },
+          colors: {
+            slate: {
+              850: '#151f32',
+              950: '#020617',
+            }
+          }
+        },
+      },
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Merriweather:wght@300;400;700;900&family=Fira+Code:wght@400;500;600&family=Playfair+Display:wght@400;600;700;800;900&family=Lato:wght@300;400;700;900&family=JetBrains+Mono:wght@400;500;600&family=Roboto+Mono:wght@400;500;600&family=Source+Code+Pro:wght@400;600&family=DM+Mono:wght@400;500&family=Space+Mono:wght@400;700&display=swap"
+    rel="stylesheet">
+  <style>
+    /* Custom Scrollbar */
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .custom-scrollbar {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+    }
+
+    /* Print Specifics */
+    @media print {
+      @page {
+        /* No browser margin - full bleed background */
+        margin: 0;
+        size: A4;
+      }
+
+      /* Force color printing for all elements */
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+
+      /* Body inherits theme background from #print-area */
+      body {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      /* Hide UI elements */
+      .print\:hidden {
+        display: none !important;
+      }
+
+      /* Layout Reset - everything transparent */
+      #root,
+      #root>div,
+      main {
+        display: block !important;
+        height: auto !important;
+        overflow: visible !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: transparent !important;
+      }
+
+      /* Paper Container - Full page with theme background */
+      #print-area {
+        width: 100% !important;
+        max-width: none !important;
+        box-shadow: none !important;
+        border: none !important;
+        border-radius: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        min-height: 100vh !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      /* Inner wrapper fills all available space */
+      #print-area>div {
+        min-height: 100vh !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      /* Page Counter Logic */
+      body {
+        counter-reset: page;
+      }
+
+      .print-page-number::after {
+        counter-increment: page;
+        content: "Page " counter(page);
+      }
+
+      /* Improved Break handling - prevent content from breaking across pages */
+      pre,
+      blockquote,
+      img,
+      .code-block-wrapper,
+      figure,
+      .mermaid-container {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+
+      h1,
+      h2,
+      h3,
+      h4,
+      h5 {
+        page-break-after: avoid !important;
+        page-break-inside: avoid !important;
+      }
+
+      /* Table specific fixes */
+      table {
+        page-break-inside: auto;
+      }
+
+      tr {
+        page-break-inside: avoid;
+        page-break-after: auto;
+      }
+
+      thead {
+        display: table-header-group;
+      }
+
+      tfoot {
+        display: table-footer-group;
+      }
+    }
+
+    body {
+      -webkit-tap-highlight-color: transparent;
+    }
+  </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
+    "react-markdown": "https://aistudiocdn.com/react-markdown@^10.1.0",
+    "react-syntax-highlighter/": "https://aistudiocdn.com/react-syntax-highlighter@^16.1.0/",
+    "react-syntax-highlighter": "https://aistudiocdn.com/react-syntax-highlighter@^16.1.0",
+    "@heroicons/react/": "https://aistudiocdn.com/@heroicons/react@^2.2.0/",
+    "remark-gfm": "https://aistudiocdn.com/remark-gfm@^4.0.1",
+    "mermaid": "https://esm.sh/mermaid@^11.12.2"
+  }
+}
+</script>
+  <link rel="stylesheet" href="/index.css">
+</head>
+
+<body class="bg-slate-950 text-slate-200 antialiased">
+  <div id="root"></div>
+  <script type="module" src="/src/index.tsx"></script>
+</body>
+
+</html>

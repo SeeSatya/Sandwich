@@ -1,0 +1,5 @@
+{
+  "name": "MarkMind PDF",
+  "description": "An intelligent Markdown to PDF converter featuring syntax highlighting and AI-powered dynamic theming.",
+  "requestFramePermissions": []
+}
