@@ -9,6 +9,22 @@ const MAX_W = 620;
 
 const hex = (c: string) => (c || '').replace('#', '').slice(0, 6) || '000000';
 
+// Normalize any CSS color ("#abc", "rgb(1,2,3)") to a 6-digit hex for docx.
+function colorHex(c?: string): string | undefined {
+  if (!c) return undefined;
+  if (c.startsWith('#')) return hex(c);
+  const m = c.match(/\d+/g);
+  return m ? m.slice(0, 3).map(x => (+x).toString(16).padStart(2, '0')).join('') : undefined;
+}
+
+// Mix a hex color toward white by `amt` (0..1) — used for soft table-header fill.
+function tint(c: string, amt: number): string {
+  const n = parseInt(hex(c), 16);
+  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+    .map(v => Math.round(v + (255 - v) * amt));
+  return ch.map(v => v.toString(16).padStart(2, '0')).join('');
+}
+
 // Rasterize an <svg> to a PNG Uint8Array (used as the fallback for the vector SVG).
 async function svgToPng(svg: SVGSVGElement, w: number, h: number, scale = 4): Promise<Uint8Array> {
   const clone = svg.cloneNode(true) as SVGSVGElement;
@@ -125,6 +141,42 @@ function inlineRuns(node: Node, theme: AppTheme, base: RunBase = {}, fmt: { b?: 
 
 const HSIZE: Record<string, number> = { H1: 36, H2: 28, H3: 24, H4: 20, H5: 18, H6: 16 }; // half-points
 
+// Preserve syntax highlighting: walk the highlighter's token <span>s keeping each
+// token's color, split into lines, skip the line-number gutter + header label.
+function codeToDocx(wrapper: HTMLElement, theme: AppTheme): Paragraph[] {
+  const codeFont = theme.fonts.code.replace(/['"]/g, '').split(',')[0].trim();
+  const bg = hex(theme.colors.codeBackground);
+  const root = (wrapper.querySelector('code') || wrapper.querySelector('pre') || wrapper) as HTMLElement;
+  const lines: TextRun[][] = [[]];
+  const push = (text: string, color?: string) => {
+    text.split('\n').forEach((part, i) => {
+      if (i > 0) lines.push([]);
+      if (part) lines[lines.length - 1].push(new TextRun({ text: part, font: codeFont, size: 18, color }));
+    });
+  };
+  const walk = (node: Node) => {
+    node.childNodes.forEach(ch => {
+      if (ch.nodeType === Node.TEXT_NODE) {
+        const p = ch.parentElement;
+        if (p && /linenumber/i.test(p.className)) return;
+        const col = p ? (p.style.color || getComputedStyle(p).color) : '';
+        push(ch.textContent || '', colorHex(col) || hex(theme.colors.text));
+      } else if (ch.nodeType === Node.ELEMENT_NODE) {
+        const e = ch as HTMLElement;
+        if (/linenumber/i.test(e.className)) return;
+        walk(e);
+      }
+    });
+  };
+  walk(root);
+  while (lines.length > 1 && lines[lines.length - 1].length === 0) lines.pop();
+  return lines.map((runs, i) => new Paragraph({
+    spacing: { after: i === lines.length - 1 ? 160 : 0, line: 240 },
+    shading: { fill: bg },
+    children: runs.length ? runs : [new TextRun({ text: ' ', font: codeFont, size: 18 })],
+  }));
+}
+
 // --- block elements ---------------------------------------------------------
 async function blockToDocx(el: HTMLElement, theme: AppTheme): Promise<any[]> {
   const tag = el.tagName.toUpperCase();
@@ -185,13 +237,7 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme): Promise<any[]> {
   if (tag === 'UL' || tag === 'OL') return listToDocx(el, theme, tag === 'OL', 0);
 
   if (tag === 'PRE' || el.querySelector('pre') || el.classList.contains('code-block-wrapper')) {
-    const codeFont = theme.fonts.code.replace(/['"]/g, '').split(',')[0].trim();
-    const lines = (el.textContent || '').replace(/\s+$/, '').split('\n');
-    return lines.map((ln, i) => new Paragraph({
-      spacing: { after: i === lines.length - 1 ? 160 : 0, line: 240 },
-      shading: { fill: hex(theme.colors.codeBackground) },
-      children: [new TextRun({ text: ln || ' ', font: codeFont, size: 18, color: hex(theme.colors.text) })],
-    }));
+    return codeToDocx(el, theme);
   }
 
   if (tag === 'TABLE') return [tableToDocx(el, theme)];
@@ -232,13 +278,15 @@ function listToDocx(list: HTMLElement, theme: AppTheme, ordered: boolean, level:
 function tableToDocx(table: HTMLElement, theme: AppTheme): Table {
   const bodyFont = theme.fonts.body.replace(/['"]/g, '').split(',')[0].trim();
   const border = hex(theme.colors.border || theme.colors.secondary);
+  // Soft tint of primary so header text stays readable (solid primary can be black).
+  const headFill = tint(theme.colors.primary, 0.82);
   const rows = Array.from(table.querySelectorAll('tr')).map((tr, ri) => new TableRow({
     children: Array.from(tr.children).map(cell => {
       const isHead = cell.tagName.toUpperCase() === 'TH';
       return new TableCell({
-        shading: isHead ? { fill: hex(theme.colors.primary) + '' } : undefined,
+        shading: isHead ? { fill: headFill } : undefined,
         children: [new Paragraph({
-          children: inlineRuns(cell as HTMLElement, theme, { font: bodyFont, color: hex(theme.colors.text), bold: isHead }),
+          children: inlineRuns(cell as HTMLElement, theme, { font: bodyFont, color: hex(isHead ? theme.colors.heading : theme.colors.text), bold: isHead }),
         })],
       });
     }),

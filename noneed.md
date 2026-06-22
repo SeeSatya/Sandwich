@@ -123,206 +123,79 @@ The experience provided valuable insight into real-world software development pr
 
 ## 3.1 Approach Adopted
 
-The development of the Library Management System followed a structured and systematic approach. Before beginning the implementation phase, sufficient time was spent understanding the project requirements and identifying the major functionalities required within the application. The primary objective was to create a system capable of managing users, books, rentals, and administrative operations through a centralized web platform.
+The development of the Library Management System followed a structured and backend-first approach. Before implementation began, the project requirements were carefully analyzed to identify the major functionalities required within the system. Since the application needed to manage users, books, rentals, purchases, and administrative activities, proper planning was necessary to ensure efficient development and maintenance.
 
-The initial stage of the project focused on planning and analysis. The requirements of the application were studied carefully to determine what information needed to be stored and how different modules would interact with one another. Since the project involved multiple entities such as users, books, and rental records, proper planning was necessary to ensure smooth development in later stages.
+The project was divided into multiple stages including requirement analysis, database planning, API development, frontend integration, testing, and deployment. The backend infrastructure was developed first because it served as the foundation for all application functionalities. Once the database structure and APIs were completed, frontend pages were connected with backend services and tested.
 
-A backend-first development approach was adopted throughout the project. This approach was chosen because most of the application's functionality depended on efficient data storage and communication between the server and the user interface. By establishing the backend foundation first, it became easier to test and validate the core functionality before integrating it with frontend components.
+A modular development strategy was followed throughout the project. Different functionalities such as user management, book management, rental management, and dashboard operations were developed independently and later integrated into the final application. This approach simplified debugging and allowed features to be tested individually before deployment.
 
-The development process was divided into multiple phases. The first phase involved database planning and system architecture design. The second phase focused on API development and implementation of business logic. The third phase involved testing and debugging. Finally, frontend integration and deployment activities were completed once the backend services became stable.
-
-This structured methodology helped ensure that development progressed in an organized manner and reduced the possibility of major design changes during later stages of implementation.
-
----
-
-## 3.2 Tools and Techniques Used
-
-Various technologies, tools, and development techniques were used during the implementation of the project.
-
-### MongoDB Database
-
-One of the earliest decisions during development was selecting an appropriate database system. Since the project involved storing different types of information and required flexibility during development, MongoDB was selected as the primary database solution.
-
-MongoDB is a document-oriented NoSQL database that stores data in JSON-like documents. This structure provided flexibility while designing the application because modifications could be introduced without extensive database restructuring.
-
-Although MongoDB does not require fixed schemas, a logical schema was designed before implementation. This helped maintain consistency across records and simplified future development and maintenance.
-
-The major collections planned for the system included:
-
-* User Collection
-* Book Collection
-* Rental Collection
-
-These collections formed the foundation of the application's data management system.
-
-### Node.js and Express.js
-
-The backend of the application was developed using Node.js and Express.js.
-
-Node.js provided a runtime environment for executing JavaScript on the server side, while Express.js simplified API creation and route management. These technologies enabled efficient handling of requests, database operations, and business logic.
-
-API endpoints were developed to support functionalities such as:
-
-* User registration
-* User login
-* User management
-* Book management
-* Rental management
-* Dashboard operations
-* Administrative functions
-
-The API-based architecture improved modularity and allowed frontend pages to communicate efficiently with the backend services.
-
-### Git Version Control
-
-Version control played an important role during development. Git was used to manage project changes, maintain code history, and track modifications throughout the development lifecycle.
-
-Using version control ensured that changes could be reviewed systematically and helped maintain project stability while introducing new features and bug fixes.
-
-### Testing and Debugging
-
-Testing was performed continuously during development. Every newly developed API endpoint was tested individually before integration with frontend pages.
-
-Special attention was given to:
-
-* User authentication functionality
-* Database operations
-* Rental calculations
-* Dashboard information
-* Data retrieval processes
-
-Whenever issues were discovered, debugging techniques were applied to identify root causes and implement suitable solutions.
-
-### Cloud Services and Deployment
-
-Cloud-based services were utilized for database hosting and application deployment. Hosting allowed the application to be tested in a real-world environment rather than only on local systems.
-
-Deployment activities helped identify issues that were not visible during local development and contributed to improving application reliability.
-
----
-
-## 3.3 Database Planning Methodology
-
-Database planning was one of the most important stages of development. Before implementation began, the required data entities were identified and organized logically.
-
-The database structure was designed to support user accounts, books, rentals, and administrative activities. Relationships between different entities were analyzed to ensure efficient data retrieval and management.
-
-The simplified database structure can be represented as follows:
-
-```mermaid
-flowchart TD
-
-User[User Collection]
-Book[Book Collection]
-Rent[Rental Collection]
-
-User --> Rent
-Book --> Rent
-```
-
-The User Collection stored account-related information such as names, email addresses, account status, and profile information.
-
-The Book Collection stored information related to books, including book names, subjects, pricing details, and availability.
-
-The Rental Collection maintained records of rented books, user references, due dates, and return status information.
-
-This structure allowed the system to maintain organized records while supporting future scalability.
-
----
-
-## 3.4 Planning and Execution of Activities
-
-The project was executed through multiple development phases.
-
-### Requirement Analysis Phase
-
-The internship began with understanding project requirements and identifying the major functionalities required within the Library Management System.
-
-During this phase, the application workflow was studied and the major modules were identified. This provided a clear understanding of what needed to be developed.
-
-### System Design Phase
-
-After requirement analysis, the overall architecture of the application was planned.
-
-Major considerations included:
-
-* Database structure
-* API architecture
-* User authentication flow
-* Rental management process
-* Dashboard functionality
-
-The design phase helped establish a clear roadmap for development activities.
-
-### API Development Phase
-
-Once planning was completed, development of API endpoints began.
-
-Initially, user-related functionalities were implemented and tested. These included registration, login, and user management operations.
-
-As development progressed, additional endpoints were created for book management, rental tracking, dashboard information, and administrative operations.
-
-The API workflow can be represented as:
+### Development Methodology
 
 ```mermaid
 flowchart LR
+    A[Requirement Analysis]
+    --> B[Database Design]
+    --> C[API Development]
+    --> D[Integration]
+    --> E[Testing]
+    --> F[Deployment]
 
-Frontend[Frontend Page]
-API[Express API]
-Database[MongoDB Database]
-
-Frontend --> API
-API --> Database
-Database --> API
-API --> Frontend
+    style A fill:#3b82f6,color:#fff
+    style F fill:#10b981,color:#fff
 ```
-
-This architecture allowed the frontend and backend components to remain independent while communicating efficiently through APIs.
-
-### Integration Phase
-
-After successful testing of individual endpoints, frontend integration activities were started.
-
-API endpoints were connected to corresponding pages and tested to verify proper communication between the user interface and backend services.
-
-This phase involved validating user registration, login functionality, dashboard information, book operations, and rental management features.
-
-### Deployment and Troubleshooting Phase
-
-Following integration, deployment activities were performed.
-
-During deployment, certain issues were encountered when the frontend and backend were hosted on separate services. Because both components operated from different origins, communication restrictions affected API requests.
-
-To resolve this issue, proper Cross-Origin Resource Sharing (CORS) configuration was implemented, allowing the frontend application to communicate successfully with backend services.
-
-Additional troubleshooting activities were performed to identify and resolve bugs, improve application stability, and ensure smooth functionality across different modules.
-
-### Final Testing Phase
-
-The final phase involved comprehensive testing of the complete application.
-
-All major functionalities were tested, including:
-
-* User registration and login
-* Book management
-* Rental management
-* Dashboard operations
-* Administrative functionality
-* API communication
-* Database interactions
-
-This testing process ensured that the system functioned correctly and that all major objectives of the project had been achieved.
 
 ---
 
-## 3.5 Outcome of the Methodology
+## 3.2 Tools and Technologies Used
 
-The adopted methodology provided a systematic framework for developing the Library Management System. By beginning with planning and database design before moving into implementation, development activities remained organized and efficient.
+Several modern technologies and cloud services were used during development:
 
-The use of MongoDB, Node.js, Express.js, Git, testing procedures, and cloud deployment services contributed significantly to the successful completion of the project. The methodology also helped in reducing development errors, improving maintainability, and ensuring that the application met its intended objectives.
+* **MongoDB** for database management.
+* **Node.js** as the server-side runtime environment.
+* **Express.js** for API and route development.
+* **Cloudinary** for hosting user avatars and book-related media files.
+* **Git** for version control and project management.
+* **HTML, CSS, and JavaScript** for frontend development.
+* **Cloud-based hosting services** for deployment and testing.
 
-Through this approach, practical knowledge was gained regarding project planning, database management, API development, testing, debugging, deployment, and software maintenance, making the internship a valuable learning experience.
+MongoDB was selected because of its flexibility and ability to handle document-based data efficiently. Although MongoDB is schema-flexible, logical schemas were designed before implementation to maintain consistency across records.
 
+Cloudinary was used to store media assets such as profile images and book covers, reducing storage requirements on the server while improving accessibility.
 
+---
 
+## 3.3 System Architecture
 
+The application follows a client-server architecture. Users interact with the frontend interface, which communicates with backend APIs. The backend processes requests, interacts with the database, and retrieves media files from Cloudinary whenever required.
+
+### System Architecture Diagram
+
+```mermaid
+flowchart LR
+    User[User]
+    --> Frontend[Frontend]
+
+    Frontend
+    --> API[Express API]
+
+    API
+    --> DB[(MongoDB)]
+
+    API
+    --> Cloud[(Cloudinary)]
+
+    style User fill:#3b82f6,color:#fff
+    style API fill:#f59e0b,color:#fff
+    style DB fill:#10b981,color:#fff
+    style Cloud fill:#8b5cf6,color:#fff
+```
+
+---
+
+## 3.4 Planning and Execution
+
+The project development process began with database planning and route design. After defining the required collections and application workflow, APIs were developed for user authentication, book management, rental operations, and dashboard functionalities.
+
+Each endpoint was tested individually before integration with frontend pages. Following successful testing, frontend components were connected to backend services. Additional effort was dedicated to debugging, deployment, and resolving communication issues between frontend and backend services hosted on separate platforms.
+
+The final phase involved system-wide testing, optimization, and verification of all major functionalities before project demonstration. This methodology ensured that the application remained stable, organized, and maintainable throughout development.
