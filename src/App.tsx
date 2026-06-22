@@ -213,6 +213,17 @@ function App() {
       image.src = url;
     })));
 
+    // Word ignores <style> blocks — stamp Academic Report sizes as inline styles
+    if (theme.name === 'Academic Report') {
+      const sizes: Record<string, string> = { H1:'16pt', H2:'14pt', H3:'13pt', H4:'12pt', H5:'12pt', H6:'12pt' };
+      clone.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li').forEach(el => {
+        const tag = el.tagName.toUpperCase();
+        const sz = sizes[tag] ?? '12pt';
+        (el as HTMLElement).style.cssText += `;font-family:"Times New Roman",serif;font-size:${sz};${sizes[tag] ? 'font-weight:bold;line-height:1;' : 'line-height:1.5;text-align:justify;'}`;
+      });
+      clone.querySelectorAll('td,th').forEach(el => { (el as HTMLElement).style.cssText += ';font-size:10pt;font-family:"Times New Roman",serif;'; });
+    }
+
     // ponytail: Word opens HTML blobs with this MIME type as a .doc — no library needed
     const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'></head><body>${clone.innerHTML}</body></html>`;
     const docBlob = new Blob([html], { type: 'application/msword' });
