@@ -176,14 +176,48 @@ function App() {
     window.print();
   };
 
-  const handleExportDoc = () => {
+  const handleExportDoc = async () => {
     const el = document.getElementById('markdown-source');
     if (!el) return;
+
+    const clone = el.cloneNode(true) as HTMLElement;
+
+    // Rasterize SVGs to PNG — source div is off-screen so use viewBox for dimensions
+    const SCALE = 2;
+    await Promise.all(Array.from(el.querySelectorAll('svg')).map((svg, i) => new Promise<void>(resolve => {
+      const vb = svg.getAttribute('viewBox')?.split(/\s+/).map(Number);
+      const w = svg.getBoundingClientRect().width || (vb ? vb[2] : 0) || 800;
+      const h = svg.getBoundingClientRect().height || (vb ? vb[3] : 0) || 400;
+      const cloned = svg.cloneNode(true) as SVGSVGElement;
+      cloned.setAttribute('width', String(w));
+      cloned.setAttribute('height', String(h));
+      const svgBlob = new Blob([new XMLSerializer().serializeToString(cloned)], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(svgBlob);
+      const image = new Image();
+      image.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = w * SCALE; canvas.height = h * SCALE;
+          const ctx = canvas.getContext('2d')!;
+          ctx.scale(SCALE, SCALE);
+          ctx.drawImage(image, 0, 0, w, h);
+          const img = document.createElement('img');
+          img.src = canvas.toDataURL('image/png');
+          img.style.cssText = `width:${w}px;height:${h}px;display:block;margin:auto`;
+          clone.querySelectorAll('svg')[i].replaceWith(img);
+        } catch (_) { /* skip tainted canvas, leave SVG as-is */ }
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      image.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+      image.src = url;
+    })));
+
     // ponytail: Word opens HTML blobs with this MIME type as a .doc — no library needed
-    const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'></head><body>${el.innerHTML}</body></html>`;
-    const blob = new Blob([html], { type: 'application/msword' });
+    const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'></head><body>${clone.innerHTML}</body></html>`;
+    const docBlob = new Blob([html], { type: 'application/msword' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    a.href = URL.createObjectURL(docBlob);
     a.download = 'document.doc';
     a.click();
     URL.revokeObjectURL(a.href);
