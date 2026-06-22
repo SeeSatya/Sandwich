@@ -177,6 +177,25 @@ export const THEME_PRESETS: AppTheme[] = [
     }
   },
   {
+    name: 'Academic Report',
+    isDark: false,
+    colors: {
+      primary: '#000000',
+      secondary: '#333333',
+      background: '#ffffff',
+      text: '#000000',
+      codeBackground: '#f5f5f5',
+      heading: '#000000',
+      border: '#cccccc',
+      codeBlockDark: '#1a1a1a'
+    },
+    fonts: {
+      heading: '"Times New Roman", Times, serif',
+      body: '"Times New Roman", Times, serif',
+      code: '"Courier New", Courier, monospace',
+    }
+  },
+  {
     name: 'Breeze',
     isDark: false,
     colors: {

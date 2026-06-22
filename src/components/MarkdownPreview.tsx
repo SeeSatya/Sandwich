@@ -746,6 +746,33 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             color: ${theme.colors.text} !important;
           }
 
+          ${theme.name === 'Academic Report' ? `
+          /* Academic Report: strict formatting rules — absolute pt sizes, not em */
+          .page {
+            font-size: 12pt !important;
+            padding: 25.4mm 25.4mm 25.4mm 38.1mm !important; /* top/right/bottom 1in, left 1.5in */
+          }
+          .page p, .page li {
+            text-align: justify !important;
+            line-height: 1.5 !important;
+            font-size: 12pt !important;
+          }
+          .page h1, .page h2, .page h3, .page h4, .page h5, .page h6 {
+            line-height: 1 !important;
+            text-align: left !important;
+            letter-spacing: 0 !important;
+            border: none !important;
+            border-bottom: none !important;
+            border-left: none !important;
+            padding-left: 0 !important;
+          }
+          .page h1 { font-size: 16pt !important; font-weight: 700 !important; }
+          .page h2 { font-size: 14pt !important; font-weight: 700 !important; }
+          .page h3 { font-size: 13pt !important; font-weight: 700 !important; }
+          .page h4, .page h5, .page h6 { font-size: 12pt !important; font-weight: 700 !important; }
+          .page table, .page td, .page th { font-size: 10pt !important; }
+          ` : ''}
+
           table {
             width: 100%;
             max-width: 100%;
