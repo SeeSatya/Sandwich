@@ -1,0 +1,112 @@
+MERMAID DIAGRAM GUIDE
+=====================
+MarkMind uses Mermaid v11.12.2 (released 2025).
+
+This is a modern version and supports most diagram types, but there are
+known rendering quirks in browser environments. Read the guidelines below
+to avoid errors.
+
+
+SUPPORTED DIAGRAM TYPES
+------------------------
+  flowchart / graph     - Most reliable. Use this first.
+  sequenceDiagram       - Works well. Keep actor names short.
+  classDiagram          - Supported.
+  stateDiagram-v2       - Supported (use v2, not stateDiagram).
+  erDiagram             - Supported.
+  pie                   - Supported.
+  gantt                 - Supported.
+  gitGraph              - Supported for simple branch flows.
+  mindmap               - Supported.
+  timeline              - Supported.
+  journey               - Supported.
+  block-beta            - Supported (v11+).
+  architecture-beta     - Supported (v11+), simple nodes only.
+  xychart-beta          - Supported (v11+).
+
+NOT SUPPORTED / UNRELIABLE
+---------------------------
+  C4Context / C4Container / C4Component  - Not available.
+  zenuml                                 - Not available.
+  packet-beta                            - Experimental, may fail.
+  sankey-beta                            - May fail on complex data.
+  quadrantChart with many points         - May clip labels.
+  requirement                            - Unreliable in browser.
+
+
+WRITING RULES (READ THESE)
+---------------------------
+
+1. ALWAYS declare the diagram type on the first line.
+   Good:   flowchart TD
+   Bad:    TD  (missing keyword)
+
+2. No spaces in node IDs. Use camelCase or underscores.
+   Good:   A[My Node] --> B[Other Node]
+   Bad:    My Node[Label] --> Other Node[Label]
+
+3. Keep labels short. Long labels in flowcharts wrap unpredictably.
+   If you need long text, use <br/> to break lines manually:
+   A["Line one<br/>Line two"]
+
+4. Avoid special characters in labels: & < > " ' # %
+   Wrap the label in quotes if you must use them:
+   A["Score > 90%"]
+
+5. For flowcharts, use 'flowchart' not 'graph'.
+   flowchart LR    (left to right)
+   flowchart TD    (top to bottom)
+   flowchart TB    (same as TD)
+
+6. Sequence diagram actors must be declared before use if you use
+   'participant' aliases. Keep participant names to one word.
+   Good:   participant DB as Database
+
+7. State diagrams: always use stateDiagram-v2, not stateDiagram.
+
+8. Class diagrams: avoid complex generics like Class~T~ if it causes
+   parse errors. Simplify to plain class names.
+
+9. gitGraph: only simple commit/branch/merge flows work reliably.
+   Avoid cherry-pick and complex rebase sequences.
+
+10. Do not nest subgraphs more than 2 levels deep in flowcharts.
+
+11. Pie charts: values must be numbers (not percentages), labels in quotes.
+    pie title My Chart
+        "Category A" : 40
+        "Category B" : 60
+
+12. If a diagram fails to render, check:
+    - First line has a valid diagram type keyword
+    - No unclosed brackets [ ] ( ) { }
+    - No bare ampersands & (use &amp; or quote the label)
+    - Arrow syntax matches the diagram type
+      flowchart uses -->  not ->
+      sequenceDiagram uses ->>  or -->>
+
+
+QUICK REFERENCE — ARROW TYPES BY DIAGRAM
+------------------------------------------
+  flowchart        -->   --o   --x   -.->   ===>   <-->
+  sequenceDiagram  ->>   -->>   -x   --x   -)   --)
+  classDiagram     --|>   --*   --o   -->   ..>   <|--
+  stateDiagram-v2  -->
+
+
+EXAMPLE THAT ALWAYS WORKS
+--------------------------
+  flowchart LR
+      A[Start] --> B{Decision}
+      B -- Yes --> C[Do Thing]
+      B -- No --> D[Skip]
+      C --> E[End]
+      D --> E
+
+
+VERSION HISTORY NOTE
+---------------------
+Mermaid v11 added: block-beta, architecture-beta, xychart-beta, packet-beta.
+If a diagram type was introduced after v10, it may have rough edges.
+When in doubt, fall back to flowchart or sequenceDiagram — these are the
+most battle-tested types across all versions.

@@ -182,35 +182,42 @@ function App() {
 
     const clone = el.cloneNode(true) as HTMLElement;
 
-    // Rasterize SVGs to PNG — source div is off-screen so use viewBox for dimensions
-    const SCALE = 2;
-    await Promise.all(Array.from(el.querySelectorAll('svg')).map((svg, i) => new Promise<void>(resolve => {
+    // Remove "Generated Diagram" captions before export
+    clone.querySelectorAll('*').forEach(el => {
+      if (el.textContent?.trim() === 'Generated Diagram') (el as HTMLElement).remove();
+    });
+
+    // Rasterize Mermaid diagrams — use live visible SVGs (real dimensions), replace containers in clone
+    const SCALE = 5;
+    const liveDiagrams = Array.from(document.querySelectorAll('.mermaid-container'));
+    const cloneDiagrams = Array.from(clone.querySelectorAll('.mermaid-container'));
+    await Promise.all(liveDiagrams.map((container, i) => new Promise<void>(resolve => {
+      const svg = container.querySelector('svg');
+      if (!svg || !cloneDiagrams[i]) return resolve();
+      const { width, height } = svg.getBoundingClientRect();
       const vb = svg.getAttribute('viewBox')?.split(/\s+/).map(Number);
-      const w = svg.getBoundingClientRect().width || (vb ? vb[2] : 0) || 800;
-      const h = svg.getBoundingClientRect().height || (vb ? vb[3] : 0) || 400;
-      const cloned = svg.cloneNode(true) as SVGSVGElement;
-      cloned.setAttribute('width', String(w));
-      cloned.setAttribute('height', String(h));
-      const svgBlob = new Blob([new XMLSerializer().serializeToString(cloned)], { type: 'image/svg+xml' });
-      const url = URL.createObjectURL(svgBlob);
+      const w = width || (vb ? vb[2] : 0) || 800;
+      const h = height || (vb ? vb[3] : 0) || 400;
+      const svgClone = svg.cloneNode(true) as SVGSVGElement;
+      svgClone.setAttribute('width', String(w));
+      svgClone.setAttribute('height', String(h));
+      const xml = new XMLSerializer().serializeToString(svgClone);
       const image = new Image();
       image.onload = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = w * SCALE; canvas.height = h * SCALE;
-          const ctx = canvas.getContext('2d')!;
-          ctx.scale(SCALE, SCALE);
-          ctx.drawImage(image, 0, 0, w, h);
-          const img = document.createElement('img');
-          img.src = canvas.toDataURL('image/png');
-          img.style.cssText = `width:${w}px;height:${h}px;display:block;margin:auto`;
-          clone.querySelectorAll('svg')[i].replaceWith(img);
-        } catch (_) { /* skip tainted canvas, leave SVG as-is */ }
-        URL.revokeObjectURL(url);
+        const canvas = document.createElement('canvas');
+        canvas.width = w * SCALE; canvas.height = h * SCALE;
+        const ctx = canvas.getContext('2d')!;
+        ctx.scale(SCALE, SCALE);
+        ctx.drawImage(image, 0, 0, w, h);
+        const img = document.createElement('img');
+        img.src = canvas.toDataURL('image/png');
+        img.style.cssText = `max-width:100%;height:auto;display:block;margin:auto`;
+        cloneDiagrams[i].replaceWith(img);
         resolve();
       };
-      image.onerror = () => { URL.revokeObjectURL(url); resolve(); };
-      image.src = url;
+      image.onerror = () => resolve();
+      // ponytail: base64 data URI is more reliable than blob URL for cross-origin SVG->canvas
+      image.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(xml)));
     })));
 
     // Word ignores <style> blocks — stamp Academic Report sizes as inline styles
@@ -219,7 +226,7 @@ function App() {
       clone.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li').forEach(el => {
         const tag = el.tagName.toUpperCase();
         const sz = sizes[tag] ?? '12pt';
-        (el as HTMLElement).style.cssText += `;font-family:"Times New Roman",serif;font-size:${sz};${sizes[tag] ? 'font-weight:bold;line-height:1;' : 'line-height:1.5;text-align:justify;'}`;
+        (el as HTMLElement).style.cssText += `;font-family:"Times New Roman",serif;font-size:${sz};${sizes[tag] ? 'font-weight:bold;line-height:1.5;' : 'line-height:1.5;text-align:justify;'}`;
       });
       clone.querySelectorAll('td,th').forEach(el => { (el as HTMLElement).style.cssText += ';font-size:10pt;font-family:"Times New Roman",serif;'; });
     }
