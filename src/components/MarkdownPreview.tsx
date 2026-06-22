@@ -15,6 +15,7 @@ import {
 } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { AppTheme } from '../types';
 import MermaidDiagram from './MermaidDiagram';
+import DiagramBlock from './DiagramBlock';
 
 interface MarkdownPreviewProps {
   content: string;
@@ -685,7 +686,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
          /* Floated elements clear for main blocks */
          .page h1, .page h2, .page h3, .page h4, .page h5, .page h6, 
          .page hr, .page table, .page .code-block-wrapper, .page blockquote, 
-         .page ul, .page ol {
+         .page ul, .page ol, .page .diagram-container {
              clear: both;
          }
          
@@ -869,6 +870,10 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
 
                 if (language === 'mermaid') {
                   return <MermaidDiagram chart={codeContent} theme={theme} />;
+                }
+
+                if (language === 'diagram') {
+                  return <DiagramBlock source={codeContent} theme={theme} />;
                 }
 
                 const activeBg = codeBlockDark ? darkBlockBg : theme.colors.codeBackground;
