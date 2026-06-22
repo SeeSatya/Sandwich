@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { generateThemeFromText } from './services/geminiService';
 import { generatePdf } from './services/pdfService';
+import { exportDocx } from './docxExport';
 import MarkdownPreview from './components/MarkdownPreview';
 import { AppTheme, DEFAULT_THEME, THEME_PRESETS } from './types';
 import {
@@ -156,6 +157,9 @@ function App() {
   const [isGeneratingTheme, setIsGeneratingTheme] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
 
+  // DOCX export progress (null = idle)
+  const [docxProgress, setDocxProgress] = useState<{ pct: number; label: string } | null>(null);
+
   // Sidebar toggles for Desktop & Mobile settings drawer
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobileSettingsOpen, setIsMobileSettingsOpen] = useState(false);
@@ -177,68 +181,15 @@ function App() {
   };
 
   const handleExportDoc = async () => {
-    const el = document.getElementById('markdown-source');
-    if (!el) return;
-
-    const clone = el.cloneNode(true) as HTMLElement;
-
-    // Remove "Generated Diagram" captions before export
-    clone.querySelectorAll('*').forEach(el => {
-      if (el.textContent?.trim() === 'Generated Diagram') (el as HTMLElement).remove();
-    });
-
-    // Rasterize Mermaid diagrams — use live visible SVGs (real dimensions), replace containers in clone
-    const SCALE = 5;
-    const liveDiagrams = Array.from(document.querySelectorAll('.mermaid-container'));
-    const cloneDiagrams = Array.from(clone.querySelectorAll('.mermaid-container'));
-    await Promise.all(liveDiagrams.map((container, i) => new Promise<void>(resolve => {
-      const svg = container.querySelector('svg');
-      if (!svg || !cloneDiagrams[i]) return resolve();
-      const { width, height } = svg.getBoundingClientRect();
-      const vb = svg.getAttribute('viewBox')?.split(/\s+/).map(Number);
-      const w = width || (vb ? vb[2] : 0) || 800;
-      const h = height || (vb ? vb[3] : 0) || 400;
-      const svgClone = svg.cloneNode(true) as SVGSVGElement;
-      svgClone.setAttribute('width', String(w));
-      svgClone.setAttribute('height', String(h));
-      const xml = new XMLSerializer().serializeToString(svgClone);
-      const image = new Image();
-      image.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = w * SCALE; canvas.height = h * SCALE;
-        const ctx = canvas.getContext('2d')!;
-        ctx.scale(SCALE, SCALE);
-        ctx.drawImage(image, 0, 0, w, h);
-        const img = document.createElement('img');
-        img.src = canvas.toDataURL('image/png');
-        img.style.cssText = `max-width:100%;height:auto;display:block;margin:auto`;
-        cloneDiagrams[i].replaceWith(img);
-        resolve();
-      };
-      image.onerror = () => resolve();
-      // ponytail: base64 data URI is more reliable than blob URL for cross-origin SVG->canvas
-      image.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(xml)));
-    })));
-
-    // Word ignores <style> blocks — stamp Academic Report sizes as inline styles
-    if (theme.name === 'Academic Report') {
-      const sizes: Record<string, string> = { H1:'16pt', H2:'14pt', H3:'13pt', H4:'12pt', H5:'12pt', H6:'12pt' };
-      clone.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li').forEach(el => {
-        const tag = el.tagName.toUpperCase();
-        const sz = sizes[tag] ?? '12pt';
-        (el as HTMLElement).style.cssText += `;font-family:"Times New Roman",serif;font-size:${sz};${sizes[tag] ? 'font-weight:bold;line-height:1.5;' : 'line-height:1.5;text-align:justify;'}`;
-      });
-      clone.querySelectorAll('td,th').forEach(el => { (el as HTMLElement).style.cssText += ';font-size:10pt;font-family:"Times New Roman",serif;'; });
+    setDocxProgress({ pct: 0, label: 'Starting…' });
+    try {
+      await exportDocx(theme, (pct, label) => setDocxProgress({ pct, label }));
+      setTimeout(() => setDocxProgress(null), 800);
+    } catch (e) {
+      setDocxProgress(null);
+      console.error(e);
+      alert('DOCX export failed. See console for details.');
     }
-
-    // ponytail: Word opens HTML blobs with this MIME type as a .doc — no library needed
-    const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'></head><body>${clone.innerHTML}</body></html>`;
-    const docBlob = new Blob([html], { type: 'application/msword' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(docBlob);
-    a.download = 'document.doc';
-    a.click();
-    URL.revokeObjectURL(a.href);
   };
 
   const handleAITheme = async () => {
@@ -503,6 +454,28 @@ function App() {
 
   return (
     <>
+      {/* DOCX export progress overlay */}
+      {docxProgress && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm print:hidden">
+          <div className="w-80 max-w-[90vw] bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl p-6 space-y-4">
+            <div className="flex items-center space-x-2">
+              <DocumentTextIcon className="w-5 h-5 text-violet-400" />
+              <span className="text-sm font-bold text-zinc-100">Building DOCX</span>
+            </div>
+            <div className="h-2 w-full bg-zinc-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-violet-500 transition-all duration-200 ease-out"
+                style={{ width: `${docxProgress.pct}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-xs text-zinc-400">
+              <span>{docxProgress.label}</span>
+              <span className="font-mono">{docxProgress.pct}%</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Dynamic print styles based on current theme */}
       <style>{`
         @media print {
@@ -599,10 +572,11 @@ function App() {
             </button>
             <button
               onClick={handleExportDoc}
-              className="flex items-center space-x-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-zinc-900 border border-zinc-800 text-zinc-200 hover:bg-zinc-800 hover:border-zinc-700 active:scale-95 transition-all select-none"
+              disabled={!!docxProgress}
+              className="flex items-center space-x-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-zinc-900 border border-zinc-800 text-zinc-200 hover:bg-zinc-800 hover:border-zinc-700 active:scale-95 transition-all select-none disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <DocumentTextIcon className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Export DOCX</span>
+              <span className="hidden sm:inline">{docxProgress ? 'Exporting…' : 'Export DOCX'}</span>
             </button>
             <button
               onClick={handleReset}
