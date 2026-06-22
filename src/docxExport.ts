@@ -1,8 +1,13 @@
 import {
   Document, Packer, Paragraph, TextRun, ExternalHyperlink, ImageRun,
   Table, TableRow, TableCell, WidthType, BorderStyle, HeadingLevel, AlignmentType,
+  Footer, PageNumber,
 } from 'docx';
 import { AppTheme } from './types';
+
+// Academic Report preset enforces strict formatting rules (Times New Roman,
+// 12pt justified body, 1.5 spacing, set heading sizes, specific margins, page numbers).
+const isAcademic = (t: AppTheme) => t.name === 'Academic Report';
 
 // Max content width on an A4 page (~6.5in @ 96dpi) so wide images/diagrams don't overflow.
 const MAX_W = 620;
@@ -105,7 +110,7 @@ async function imgToPng(el: HTMLImageElement): Promise<{ data: Uint8Array; w: nu
 // --- inline runs ------------------------------------------------------------
 // `base` (font/color/bold) is applied to every run produced — set per block so
 // we never have to reconstruct runs afterward (docx doesn't expose run.options).
-interface RunBase { font?: string; color?: string; bold?: boolean }
+interface RunBase { font?: string; color?: string; bold?: boolean; size?: number }
 function inlineRuns(node: Node, theme: AppTheme, base: RunBase = {}, fmt: { b?: boolean; i?: boolean; code?: boolean } = {}): (TextRun | ExternalHyperlink)[] {
   const out: (TextRun | ExternalHyperlink)[] = [];
   node.childNodes.forEach(child => {
@@ -115,6 +120,7 @@ function inlineRuns(node: Node, theme: AppTheme, base: RunBase = {}, fmt: { b?: 
         text,
         bold: fmt.b || base.bold,
         italics: fmt.i,
+        size: base.size,
         font: fmt.code ? theme.fonts.code.replace(/['"]/g, '').split(',')[0].trim() : base.font,
         color: fmt.code ? hex(theme.colors.primary) : base.color,
       }));
@@ -208,11 +214,19 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme): Promise<any[]> {
     })];
   }
 
+  const academic = isAcademic(theme);
+
   if (/^H[1-6]$/.test(tag)) {
+    // Academic: 16pt (H1) / 14pt (H2) / 12pt (H3+) bold, left-aligned, single spacing.
+    const acSize: Record<string, number> = { H1: 32, H2: 28, H3: 24, H4: 24, H5: 24, H6: 24 };
     return [new Paragraph({
-      heading: HeadingLevel[`HEADING_${tag[1]}` as keyof typeof HeadingLevel],
-      spacing: { before: 240, after: 120 },
-      children: inlineRuns(el, theme, { font: headFont, color: hex(theme.colors.heading), bold: true }),
+      heading: academic ? undefined : HeadingLevel[`HEADING_${tag[1]}` as keyof typeof HeadingLevel],
+      alignment: academic ? AlignmentType.LEFT : undefined,
+      spacing: academic ? { before: 240, after: 120, line: 240 } : { before: 240, after: 120 },
+      children: inlineRuns(el, theme, {
+        font: headFont, color: hex(theme.colors.heading), bold: true,
+        size: academic ? acSize[tag] : undefined,
+      }),
     })];
   }
 
@@ -227,10 +241,12 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme): Promise<any[]> {
       return out;
     }
     return [new Paragraph({
-      spacing: { after: 160, line: 276 },
+      // Academic: 12pt justified, 1.5 line spacing.
+      alignment: academic && tag === 'P' ? AlignmentType.JUSTIFIED : undefined,
+      spacing: academic ? { after: 160, line: 360 } : { after: 160, line: 276 },
       indent: tag === 'BLOCKQUOTE' ? { left: 480 } : undefined,
       border: tag === 'BLOCKQUOTE' ? { left: { style: BorderStyle.SINGLE, size: 18, color: hex(theme.colors.primary), space: 12 } } : undefined,
-      children: inlineRuns(el, theme, { font: bodyFont, color: hex(theme.colors.text) }),
+      children: inlineRuns(el, theme, { font: bodyFont, color: hex(theme.colors.text), size: academic ? 24 : undefined }),
     })];
   }
 
@@ -258,6 +274,7 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme): Promise<any[]> {
 
 function listToDocx(list: HTMLElement, theme: AppTheme, ordered: boolean, level: number): Paragraph[] {
   const bodyFont = theme.fonts.body.replace(/['"]/g, '').split(',')[0].trim();
+  const academic = isAcademic(theme);
   const out: Paragraph[] = [];
   Array.from(list.children).forEach(li => {
     if (li.tagName.toUpperCase() !== 'LI') return;
@@ -266,9 +283,9 @@ function listToDocx(list: HTMLElement, theme: AppTheme, ordered: boolean, level:
     const tmp = li.cloneNode(true) as HTMLElement;
     tmp.querySelectorAll('ul,ol').forEach(n => n.remove());
     out.push(new Paragraph({
-      spacing: { after: 80 },
+      spacing: academic ? { after: 80, line: 360 } : { after: 80 },
       ...(ordered ? { numbering: { reference: 'num', level } } : { bullet: { level } }),
-      children: inlineRuns(tmp, theme, { font: bodyFont, color: hex(theme.colors.text) }),
+      children: inlineRuns(tmp, theme, { font: bodyFont, color: hex(theme.colors.text), size: academic ? 24 : undefined }),
     }));
     nested.forEach(n => out.push(...listToDocx(n, theme, n.tagName.toUpperCase() === 'OL', level + 1)));
   });
@@ -278,6 +295,7 @@ function listToDocx(list: HTMLElement, theme: AppTheme, ordered: boolean, level:
 function tableToDocx(table: HTMLElement, theme: AppTheme): Table {
   const bodyFont = theme.fonts.body.replace(/['"]/g, '').split(',')[0].trim();
   const border = hex(theme.colors.border || theme.colors.secondary);
+  const academic = isAcademic(theme);
   // Soft tint of primary so header text stays readable (solid primary can be black).
   const headFill = tint(theme.colors.primary, 0.82);
   const rows = Array.from(table.querySelectorAll('tr')).map((tr, ri) => new TableRow({
@@ -286,7 +304,7 @@ function tableToDocx(table: HTMLElement, theme: AppTheme): Table {
       return new TableCell({
         shading: isHead ? { fill: headFill } : undefined,
         children: [new Paragraph({
-          children: inlineRuns(cell as HTMLElement, theme, { font: bodyFont, color: hex(isHead ? theme.colors.heading : theme.colors.text), bold: isHead }),
+          children: inlineRuns(cell as HTMLElement, theme, { font: bodyFont, color: hex(isHead ? theme.colors.heading : theme.colors.text), bold: isHead, size: academic ? 21 : undefined }),
         })],
       });
     }),
@@ -323,6 +341,21 @@ export async function exportDocx(
   }
   onProgress?.(95, 'Packaging document…');
 
+  const academic = isAcademic(theme);
+  // Academic margins (twips): left 1.5in=2160, right/top/bottom 1in=1440.
+  const section: any = { children };
+  if (academic) {
+    section.properties = { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 2160 } } };
+    section.footers = {
+      default: new Footer({
+        children: [new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [new TextRun({ children: [PageNumber.CURRENT], font: 'Times New Roman', size: 24 })],
+        })],
+      }),
+    };
+  }
+
   const doc = new Document({
     numbering: {
       config: [{
@@ -332,7 +365,7 @@ export async function exportDocx(
         })),
       }],
     },
-    sections: [{ children }],
+    sections: [section],
   });
 
   const blob = await Packer.toBlob(doc);
