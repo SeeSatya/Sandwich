@@ -73,6 +73,67 @@ Preview the production build locally:
 npm.cmd run preview
 ```
 
+## AI Diagram Blocks
+
+MarkMind supports AI-friendly JSON diagram blocks in Markdown. Use a fenced `diagram` block:
+
+````markdown
+```diagram
+{
+  "type": "flowchart",
+  "title": "Authentication",
+  "nodes": [
+    { "id": "start", "label": "Start", "kind": "start" },
+    { "id": "login", "label": "Login", "kind": "process" },
+    { "id": "dashboard", "label": "Dashboard", "kind": "end" }
+  ],
+  "edges": [
+    { "source": "start", "target": "login" },
+    { "source": "login", "target": "dashboard" }
+  ]
+}
+```
+````
+
+Supported diagram types:
+
+```text
+flowchart
+network
+architecture
+database
+uml
+mindmap
+```
+
+Supported node kinds:
+
+```text
+start
+end
+process
+decision
+database
+server
+client
+actor
+component
+chip
+pin
+memory
+storage
+cloud
+```
+
+AI generation rules:
+
+- Generate only JSON inside `diagram` fences.
+- Do not generate SVG, JSX, React Flow, Mermaid, or coordinates.
+- Do not include `x` or `y` values; layout is automatic.
+- Always use unique node IDs.
+- Keep labels short; put long explanations in normal Markdown text.
+- Edges must reference existing node IDs.
+
 ## Run With Docker
 
 Docker is optional. The normal Node/Vite workflow still works.

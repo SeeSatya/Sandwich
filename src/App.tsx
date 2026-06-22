@@ -42,7 +42,12 @@ MarkMind supports a wide range of markdown features:
    - Line numbers
    - Window-style headers
 
-3. **Tables & Lists**
+3. **AI-Friendly Diagram Blocks**
+   - JSON-based diagram definitions
+   - Automatic layout
+   - SVG rendering for sharp PDF output
+
+4. **Tables & Lists**
    - Tables with alignment
    - Nested lists at any depth
    - Ordered and unordered lists
@@ -73,6 +78,51 @@ function UserCard({ user }: { user: User }) {
 ---
 
 ## System Architecture
+
+\`\`\`diagram
+{
+  "type": "architecture",
+  "title": "Markdown to PDF Pipeline",
+  "nodes": [
+    {
+      "id": "markdown",
+      "label": "Markdown",
+      "kind": "client"
+    },
+    {
+      "id": "parser",
+      "label": "Parser",
+      "kind": "process"
+    },
+    {
+      "id": "renderer",
+      "label": "Renderer",
+      "kind": "component"
+    },
+    {
+      "id": "pdf",
+      "label": "PDF",
+      "kind": "storage"
+    }
+  ],
+  "edges": [
+    {
+      "source": "markdown",
+      "target": "parser"
+    },
+    {
+      "source": "parser",
+      "target": "renderer"
+    },
+    {
+      "source": "renderer",
+      "target": "pdf"
+    }
+  ]
+}
+\`\`\`
+
+Mermaid diagrams are still supported:
 
 \`\`\`mermaid
 graph LR
