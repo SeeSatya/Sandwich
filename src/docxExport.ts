@@ -26,6 +26,40 @@ async function svgToPng(svg: SVGSVGElement, w: number, h: number, scale = 4): Pr
   return blob ? new Uint8Array(await blob.arrayBuffer()) : new Uint8Array();
 }
 
+// Word's SVG renderer can't draw <foreignObject> (mermaid's HTML labels), so the
+// text vanishes. Replace each foreignObject with a real SVG <text> placed at its box,
+// copying the computed color/size from the live element.
+function flattenLabels(svg: SVGSVGElement): SVGSVGElement {
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  const origFOs = svg.querySelectorAll('foreignObject');
+  const cloneFOs = clone.querySelectorAll('foreignObject');
+  cloneFOs.forEach((fo, i) => {
+    const orig = origFOs[i] as HTMLElement | undefined;
+    const labelEl = orig?.querySelector('div,span,p') as HTMLElement | null;
+    const lines = Array.from(fo.querySelectorAll('span,div,p'))
+      .map(n => (n.textContent || '').trim())
+      .filter(Boolean);
+    const text = (lines.length ? Array.from(new Set(lines)).pop()! : (fo.textContent || '')).trim();
+    if (!text) { fo.remove(); return; }
+    const cs = labelEl ? getComputedStyle(labelEl) : null;
+    const x = parseFloat(fo.getAttribute('x') || '0');
+    const y = parseFloat(fo.getAttribute('y') || '0');
+    const w = parseFloat(fo.getAttribute('width') || '0');
+    const h = parseFloat(fo.getAttribute('height') || '0');
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('x', String(x + w / 2));
+    t.setAttribute('y', String(y + h / 2));
+    t.setAttribute('text-anchor', 'middle');
+    t.setAttribute('dominant-baseline', 'central');
+    t.setAttribute('fill', cs?.color || '#1f2937');
+    t.setAttribute('font-size', cs?.fontSize || '14px');
+    t.setAttribute('font-family', 'sans-serif');
+    t.textContent = text;
+    fo.parentNode?.replaceChild(t, fo);
+  });
+  return clone;
+}
+
 const loadImage = (src: string) => new Promise<HTMLImageElement>((res, rej) => {
   const i = new Image();
   i.crossOrigin = 'anonymous';
@@ -107,8 +141,9 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme): Promise<any[]> {
     let w = rect.width || (vb ? vb[2] : 0) || 600;
     let h = rect.height || (vb ? vb[3] : 0) || 400;
     if (w > MAX_W) { h = h * (MAX_W / w); w = MAX_W; }
-    const svgStr = new XMLSerializer().serializeToString(svg);
-    const png = await svgToPng(svg as SVGSVGElement, w, h);
+    const flat = flattenLabels(svg as SVGSVGElement);
+    const svgStr = new XMLSerializer().serializeToString(flat);
+    const png = await svgToPng(flat, w, h);
     return [new Paragraph({
       alignment: AlignmentType.CENTER,
       children: [new ImageRun({
