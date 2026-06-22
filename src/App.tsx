@@ -176,6 +176,19 @@ function App() {
     window.print();
   };
 
+  const handleExportDoc = () => {
+    const el = document.getElementById('markdown-source');
+    if (!el) return;
+    // ponytail: Word opens HTML blobs with this MIME type as a .doc — no library needed
+    const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'></head><body>${el.innerHTML}</body></html>`;
+    const blob = new Blob([html], { type: 'application/msword' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'document.doc';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
   const handleAITheme = async () => {
     if (!process.env.API_KEY) {
       alert("API_KEY environment variable is missing.");
@@ -531,6 +544,13 @@ function App() {
             >
               <PrinterIcon className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Export PDF</span>
+            </button>
+            <button
+              onClick={handleExportDoc}
+              className="flex items-center space-x-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-zinc-900 border border-zinc-800 text-zinc-200 hover:bg-zinc-800 hover:border-zinc-700 active:scale-95 transition-all select-none"
+            >
+              <DocumentTextIcon className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Export DOCX</span>
             </button>
             <button
               onClick={handleReset}

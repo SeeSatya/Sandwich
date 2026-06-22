@@ -840,7 +840,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       `}</style>
 
       <div className="w-full h-full flex flex-col items-center print:min-h-screen print:overflow-visible">
-        <div ref={sourceRef} className="markdown-source">
+        <div ref={sourceRef} id="markdown-source" className="markdown-source">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeRaw]}
