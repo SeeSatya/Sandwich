@@ -50,18 +50,35 @@ async function svgToPng(svg: SVGSVGElement, w: number, h: number, scale = 4): Pr
 // Word's SVG renderer can't draw <foreignObject> (mermaid's HTML labels), so the
 // text vanishes. Replace each foreignObject with a real SVG <text> placed at its box,
 // copying the computed color/size from the live element.
+// Fill of the shape behind a label (the node rect/circle/path), so we can choose
+// a contrasting text color instead of trusting the theme's single text color —
+// saturated node fills (e.g. blue journey/flowchart boxes) need white text.
+function nodeFill(fo: Element): string | null {
+  let el: Element | null = fo;
+  for (let i = 0; i < 4 && el; i++) {
+    const shape = el.parentElement?.querySelector(
+      ':scope > rect, :scope > circle, :scope > ellipse, :scope > polygon, :scope > path',
+    ) as SVGElement | null;
+    if (shape) {
+      const f = shape.getAttribute('fill') || getComputedStyle(shape).fill;
+      if (f && f !== 'none' && f !== 'transparent') return f;
+    }
+    el = el.parentElement;
+  }
+  return null;
+}
+
+// Black or white, whichever contrasts the given fill (perceived luminance).
+function contrastText(fill: string, fallback: string): string {
+  const h = colorHex(fill);
+  if (!h) return fallback;
+  const n = parseInt(h, 16);
+  const L = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+  return L < 140 ? '#ffffff' : '#1f2937';
+}
+
 function flattenLabels(svg: SVGSVGElement): SVGSVGElement {
   const clone = svg.cloneNode(true) as SVGSVGElement;
-  // Map a screen-px box to root-SVG user units so text lands correctly no matter
-  // how deeply the foreignObject is nested under transformed <g>s (e.g. mindmap).
-  // ponytail: rect→user-units via viewBox scale; mindmap label placement is best-effort.
-  const rootRect = svg.getBoundingClientRect();
-  const vb = svg.getAttribute('viewBox')?.split(/\s+/).map(Number);
-  const sx = vb && rootRect.width ? vb[2] / rootRect.width : 1;
-  const sy = vb && rootRect.height ? vb[3] / rootRect.height : 1;
-  const ox = vb ? vb[0] : 0;
-  const oy = vb ? vb[1] : 0;
-
   const origFOs = svg.querySelectorAll('foreignObject');
   const cloneFOs = clone.querySelectorAll('foreignObject');
   cloneFOs.forEach((fo, i) => {
@@ -73,24 +90,24 @@ function flattenLabels(svg: SVGSVGElement): SVGSVGElement {
     const text = (lines.length ? Array.from(new Set(lines)).pop()! : (fo.textContent || '')).trim();
     if (!text) { fo.remove(); return; }
     const cs = labelEl ? getComputedStyle(labelEl) : null;
-    // Center from the live element's on-screen box mapped into root user units.
-    const r = orig?.getBoundingClientRect();
-    const cx = r && r.width ? ox + (r.left + r.width / 2 - rootRect.left) * sx
-                            : parseFloat(fo.getAttribute('x') || '0') + parseFloat(fo.getAttribute('width') || '0') / 2;
-    const cy = r && r.height ? oy + (r.top + r.height / 2 - rootRect.top) * sy
-                             : parseFloat(fo.getAttribute('y') || '0') + parseFloat(fo.getAttribute('height') || '0') / 2;
+    // Local box coords; the <text> is inserted in the FO's own parent so it
+    // inherits that group's transform — correct for flowchart/state/mindmap/etc.
+    const x = parseFloat(fo.getAttribute('x') || '0');
+    const y = parseFloat(fo.getAttribute('y') || '0');
+    const w = parseFloat(fo.getAttribute('width') || '0');
+    const h = parseFloat(fo.getAttribute('height') || '0');
     const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    t.setAttribute('x', String(cx));
-    t.setAttribute('y', String(cy));
+    t.setAttribute('x', String(x + w / 2));
+    t.setAttribute('y', String(y + h / 2));
     t.setAttribute('text-anchor', 'middle');
     t.setAttribute('dominant-baseline', 'central');
-    t.setAttribute('fill', cs?.color || '#1f2937');
+    // Contrast against the node's own fill; fall back to the live computed color.
+    const fill = orig ? nodeFill(orig) : null;
+    t.setAttribute('fill', fill ? contrastText(fill, cs?.color || '#1f2937') : (cs?.color || '#1f2937'));
     t.setAttribute('font-size', cs?.fontSize || '14px');
     t.setAttribute('font-family', 'sans-serif');
     t.textContent = text;
-    // Append at root level so a parent transform can't shift it off its node.
-    fo.remove();
-    clone.appendChild(t);
+    fo.parentNode?.replaceChild(t, fo);
   });
   return clone;
 }
@@ -371,6 +388,9 @@ export async function exportDocx(
   }
 
   const doc = new Document({
+    // Carry the theme background so dark themes (light text) stay readable in Word,
+    // matching the on-screen preview instead of light-on-white.
+    background: { color: hex(theme.colors.background) },
     numbering: {
       config: [{
         reference: 'num',

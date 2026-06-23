@@ -19,10 +19,27 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
     const textColor = theme.isDark ? '#f8fafc' : '#1f2937';
     const bgColor = theme.isDark ? theme.colors.codeBackground : '#f8fafc';
 
+    // Distinct categorical palette so pie/multi-series slices don't collapse into
+    // near-white tints (mermaid only auto-derives from a single primaryColor).
+    const palette = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16', '#06b6d4', '#eab308'];
+    const pieVars = Object.fromEntries(palette.map((c, i) => [`pie${i + 1}`, c]));
+    // Journey/timeline sections use the cScale* fills + cScaleLabel* text. Defaults
+    // give light-on-light (invisible section titles), so set distinct fills with a
+    // contrasting label color per section.
+    const lum = (h: string) => { const n = parseInt(h.slice(1), 16); return 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255); };
+    const scaleVars = Object.fromEntries(palette.flatMap((c, i) => [
+      [`cScale${i}`, c],
+      [`cScaleLabel${i}`, lum(c) < 140 ? '#ffffff' : '#1f2937'],
+    ]));
+
     const config = {
       startOnLoad: false,
       theme: 'base' as const,
       themeVariables: {
+        ...pieVars,
+        ...scaleVars,
+        pieStrokeColor: theme.isDark ? '#0f172a' : '#ffffff',
+        pieOuterStrokeColor: theme.isDark ? '#0f172a' : '#334155',
         // Primary node styling
         primaryColor: theme.colors.primary,
         primaryTextColor: textColor,
