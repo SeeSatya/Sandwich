@@ -121,12 +121,12 @@ const loadImage = (src: string) => new Promise<HTMLImageElement>((res, rej) => {
 });
 
 // Convert any <img> (data URI or remote) to PNG bytes + dimensions for ImageRun.
-async function imgToPng(el: HTMLImageElement): Promise<{ data: Uint8Array; w: number; h: number } | null> {
+async function imgToPng(el: HTMLImageElement, maxW = MAX_W): Promise<{ data: Uint8Array; w: number; h: number } | null> {
   try {
     const img = await loadImage(el.currentSrc || el.src);
     let w = el.getBoundingClientRect().width || img.naturalWidth || 400;
     let h = el.getBoundingClientRect().height || img.naturalHeight || 300;
-    if (w > MAX_W) { h = h * (MAX_W / w); w = MAX_W; }
+    if (w > maxW) { h = h * (maxW / w); w = maxW; }
     const canvas = document.createElement('canvas');
     canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
     canvas.getContext('2d')!.drawImage(img, 0, 0);
@@ -161,6 +161,11 @@ function inlineRuns(node: Node, theme: AppTheme, base: RunBase = {}, fmt: { b?: 
     const el = child as HTMLElement;
     const tag = el.tagName.toUpperCase();
     if (tag === 'BR') { out.push(new TextRun({ break: 1 })); return; }
+    if (tag === 'INPUT' && (el as HTMLInputElement).type === 'checkbox') {
+      const checked = (el as HTMLInputElement).checked || el.hasAttribute('checked');
+      out.push(new TextRun({ text: checked ? '☑ ' : '☐ ', font: base.font, size: base.size }));
+      return;
+    }
     if (tag === 'STRONG' || tag === 'B') { out.push(...inlineRuns(el, theme, base, { ...fmt, b: true })); return; }
     if (tag === 'EM' || tag === 'I') { out.push(...inlineRuns(el, theme, base, { ...fmt, i: true })); return; }
     if (tag === 'CODE') { out.push(...inlineRuns(el, theme, base, { ...fmt, code: true })); return; }
@@ -215,10 +220,34 @@ function codeToDocx(wrapper: HTMLElement, theme: AppTheme): Paragraph[] {
 }
 
 // --- block elements ---------------------------------------------------------
-async function blockToDocx(el: HTMLElement, theme: AppTheme): Promise<any[]> {
+async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W): Promise<any[]> {
   const tag = el.tagName.toUpperCase();
   const headFont = theme.fonts.heading.replace(/['"]/g, '').split(',')[0].trim();
   const bodyFont = theme.fonts.body.replace(/['"]/g, '').split(',')[0].trim();
+
+  // Side-by-side columns → borderless table so the layout survives in Word.
+  // Must run before the diagram check (a nested .mermaid-container would
+  // otherwise swallow the whole block as one diagram).
+  if (el.classList.contains('md-columns')) {
+    const none = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+    const cols = Array.from(el.children).filter(c => (c as HTMLElement).classList.contains('md-column')) as HTMLElement[];
+    const colW = Math.round(MAX_W / Math.max(cols.length, 1)) - 24; // cap diagrams to their cell
+    const cells: TableCell[] = [];
+    for (const col of cols) {
+      const cc: any[] = [];
+      for (const c of Array.from(col.children)) cc.push(...await blockToDocx(c as HTMLElement, theme, colW));
+      cells.push(new TableCell({
+        children: cc.length ? cc : [new Paragraph({})],
+        margins: { top: 0, bottom: 0, left: 80, right: 80 },
+        borders: { top: none, bottom: none, left: none, right: none },
+      }));
+    }
+    return [new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [new TableRow({ children: cells })],
+      borders: { top: none, bottom: none, left: none, right: none, insideHorizontal: none, insideVertical: none },
+    })];
+  }
 
   // Mermaid / generated diagram → vector SVG (+ PNG fallback)
   const svg = el.classList.contains('mermaid-container')
@@ -229,7 +258,7 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme): Promise<any[]> {
     const vb = svg.getAttribute('viewBox')?.split(/\s+/).map(Number);
     let w = rect.width || (vb ? vb[2] : 0) || 600;
     let h = rect.height || (vb ? vb[3] : 0) || 400;
-    if (w > MAX_W) { h = h * (MAX_W / w); w = MAX_W; }
+    if (w > maxW) { h = h * (maxW / w); w = maxW; }
     const flat = flattenLabels(svg as SVGSVGElement);
     const svgStr = new XMLSerializer().serializeToString(flat);
     const png = await svgToPng(flat, w, h);
@@ -266,7 +295,7 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme): Promise<any[]> {
     if (imgs.length && el.textContent?.trim() === '') {
       const out: any[] = [];
       for (const im of imgs) {
-        const p = await imgToPng(im);
+        const p = await imgToPng(im, maxW);
         if (p) out.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new ImageRun({ type: 'png', data: p.data, transformation: { width: p.w, height: p.h } } as any)] }));
       }
       return out;
@@ -293,13 +322,13 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme): Promise<any[]> {
 
   // image directly
   if (tag === 'IMG') {
-    const p = await imgToPng(el as HTMLImageElement);
+    const p = await imgToPng(el as HTMLImageElement, maxW);
     return p ? [new Paragraph({ alignment: AlignmentType.CENTER, children: [new ImageRun({ type: 'png', data: p.data, transformation: { width: p.w, height: p.h } } as any)] })] : [];
   }
 
   // wrapper div etc — recurse into children
   const out: any[] = [];
-  for (const c of Array.from(el.children)) out.push(...await blockToDocx(c as HTMLElement, theme));
+  for (const c of Array.from(el.children)) out.push(...await blockToDocx(c as HTMLElement, theme, maxW));
   return out;
 }
 

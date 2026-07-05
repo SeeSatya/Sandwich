@@ -131,6 +131,13 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
           .replace(/&amp;/g, '&')
           .replace(/&quot;/g, '"');
 
+        // Leniency: flowcharts require each edge on one line, but users often wrap
+        // a long edge (node on one line, `--> target` on the next). Join a line
+        // that begins with an edge operator back onto the previous line.
+        if (/^\s*(flowchart|graph)\b/.test(processedChart)) {
+          processedChart = processedChart.replace(/\n[ \t]*((?:--+|==+|-\.|<--|<==|--[ox])[^\n]*)/g, ' $1');
+        }
+
         const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
         const { svg } = await mermaid.render(id, processedChart);
         

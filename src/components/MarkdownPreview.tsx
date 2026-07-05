@@ -37,6 +37,15 @@ interface MarkdownPreviewProps {
 export const preprocessMarkdown = (text: string): string => {
   if (!text) return '';
 
+  // Side-by-side columns: `::: columns` ... `|||` (separator) ... `:::`.
+  // Emit flex divs with blank lines around each cell so the inner markdown
+  // (including ```mermaid blocks) is still parsed by react-markdown.
+  text = text.replace(/^:::[ \t]*columns[ \t]*\r?\n([\s\S]*?)\r?\n:::[ \t]*$/gm, (_m, body) => {
+    const cells = body.split(/\r?\n[ \t]*\|\|\|[ \t]*\r?\n/);
+    const cols = cells.map((c: string) => `<div class="md-column">\n\n${c.trim()}\n\n</div>`).join('\n');
+    return `<div class="md-columns">\n${cols}\n</div>`;
+  });
+
   // Match: [img - option1 - option2 - ... - url] or [img - option1 - ... - [text](url)]
   const regex = /\[img\s*-\s*((?:[^\[\]}]|\[[^\]]*\]\([^)]*\))+)[\]}]/g;
 
@@ -690,6 +699,19 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
              clear: both;
          }
          
+         /* Side-by-side columns (::: columns / ||| / :::) */
+         .md-columns {
+            display: flex;
+            gap: 1.5em;
+            align-items: flex-start;
+            margin: 1.2em 0;
+         }
+         .md-column {
+            flex: 1 1 0;
+            min-width: 0; /* let tables/diagrams shrink instead of overflowing */
+         }
+         .md-column > :first-child { margin-top: 0; }
+
          /* Limit Mermaid Diagram Size - More Compact */
          .mermaid-container {
             max-height: 450px;

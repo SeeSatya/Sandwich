@@ -34,6 +34,41 @@ NOT SUPPORTED / UNRELIABLE
   requirement                            - Unreliable in browser.
 
 
+SIDE-BY-SIDE COLUMNS (TEXT + DIAGRAM)
+--------------------------------------
+Put content next to each other — e.g. explanation on one side, a diagram on
+the other (in either order). Wrap the block in `::: columns` ... `:::` and
+separate each column with a line containing only `|||`.
+
+Each column accepts ANY markdown: headings, lists, tables, images, and even
+```mermaid blocks. Columns render side-by-side in the preview, the printed
+PDF, and the exported DOCX (as a borderless table). On narrow widths the
+columns wrap, and diagrams shrink to fit their column.
+
+  Text on the LEFT, diagram on the RIGHT:
+
+    ::: columns
+    ## Login Flow
+    The user signs in, the API verifies the
+    credentials, then the session starts.
+    |||
+    ```mermaid
+    flowchart TD
+        A[Login] --> B[Verify]
+        B --> C[Dashboard]
+    ```
+    :::
+
+  Diagram on the LEFT, text on the RIGHT — just swap the two sides.
+
+  More than two columns: add more `|||` separators (3+ columns supported).
+
+Rules:
+  - `::: columns` must be on its own line; the closing `:::` on its own line.
+  - The separator line must be exactly `|||` (optional surrounding spaces).
+  - Leave the inner ```mermaid fences exactly as you'd write them normally.
+
+
 WRITING RULES (READ THESE)
 ---------------------------
 
