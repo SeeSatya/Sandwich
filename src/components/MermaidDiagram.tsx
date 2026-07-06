@@ -178,7 +178,7 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
 
   return (
     <div
-      className="mermaid-container my-8 flex flex-col items-center w-full overflow-hidden p-6 rounded-3xl shadow-inner"
+      className="mermaid-container my-6 flex flex-col items-center w-full overflow-hidden p-4 rounded-3xl shadow-inner"
       style={{
         backgroundColor: theme.isDark ? `${theme.colors.codeBackground}80` : 'rgba(248, 250, 252, 0.5)',
         border: `1px solid ${theme.isDark ? theme.colors.border : '#f1f5f9'}`
@@ -197,6 +197,7 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
       <style>{`
         .mermaid-container svg {
           max-width: 100% !important;
+          max-height: 380px !important;
           height: auto !important;
         }
       `}</style>

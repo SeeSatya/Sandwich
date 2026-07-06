@@ -299,7 +299,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       // Content Height
       // Leave a small safety buffer so rounding/font-metric differences
       // do not clip the final line at the bottom of a page.
-      const PAGE_SAFETY_PX = 16;
+      const PAGE_SAFETY_PX = 24;
       const MAX_CONTENT_HEIGHT = PAGE_HEIGHT_PX - (marginVertPx * 2) - PAGE_SAFETY_PX;
 
       const children = Array.from(source.children) as HTMLElement[];
@@ -311,7 +311,9 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         const isHeader = /^H[1-6]$/.test(child.tagName);
         const isDiagram = child.classList.contains('mermaid-container') ||
           child.querySelector('.mermaid-container') !== null;
-        const isCodeBlock = child.tagName === 'PRE';
+        const isCodeBlock = child.tagName === 'PRE' ||
+          child.classList.contains('code-block-wrapper') ||
+          child.querySelector('.code-block-wrapper') !== null;
         const isList = child.tagName === 'OL' || child.tagName === 'UL';
 
         const childRect = child.getBoundingClientRect();
@@ -685,10 +687,13 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             flex-shrink: 0;
           }
          
-         /* STRICT text styling to match split logic */
-         .page p, .page li, .page div, .page h1, .page h2, .page h3, .page h4, .page h5, .page h6,
-         .page blockquote, .page table, .page a, .page strong, .page em {
+         /* STRICT text styling to match split logic — applied to BOTH the hidden
+            measurement source and the rendered pages so measured heights match
+            rendered heights exactly (otherwise lines get clipped at page bottom). */
+         :is(.page, .markdown-source) :is(p, li, h1, h2, h3, h4, h5, h6, blockquote, table, a, strong, em) {
              line-height: 1.5 !important;
+         }
+         .page :is(p, li, blockquote, td, a, strong, em) {
              color: ${theme.colors.text} !important;
          }
          
@@ -712,19 +717,16 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
          }
          .md-column > :first-child { margin-top: 0; }
 
-         /* Limit Mermaid Diagram Size - More Compact */
-         .mermaid-container {
-            max-height: 450px;
-            overflow: hidden;
-         }
+         /* Limit Mermaid diagram size. No transform:scale here — a transform
+            shrinks the drawing but NOT its layout box, which left large blank
+            gaps around diagrams. width:auto + max-height lets the browser
+            shrink the box itself while preserving the aspect ratio. */
          .mermaid-container svg {
-            max-height: 400px;
             max-width: 100%;
+            max-height: 380px;
             height: auto;
             display: block;
             margin: 0 auto;
-            transform: scale(0.85);
-            transform-origin: top center;
          }
 
          .page-content {
@@ -738,6 +740,9 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
            left: -9999px;
            width: calc(210mm - (${getHorizontalPadding()} * 2));
            visibility: hidden;
+           /* Must match .page typography exactly or measured heights drift */
+           font-family: ${theme.fonts.body};
+           line-height: 1.5;
          }
 
          /* Headers logic */
@@ -900,7 +905,12 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                 const language = match ? match[1] : '';
                 const codeContent = String(children).replace(/\n$/, '');
 
-                if (inline || !match) {
+                // react-markdown v9+ no longer passes `inline` — infer it.
+                // Fenced blocks without a language must still render as blocks,
+                // otherwise multi-line code collapses into one nowrap line.
+                const isInline = inline ?? (!className && !codeContent.includes('\n'));
+
+                if (isInline) {
                   return (
                     <code
                       className="px-1.5 py-0.5 rounded text-[0.9em]"
@@ -908,7 +918,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                         backgroundColor: theme.colors.codeBackground,
                         color: theme.colors.text,
                         fontFamily: codeFont,
-                        whiteSpace: 'nowrap'
+                        overflowWrap: 'anywhere'
                       }}
                       {...props}
                     >
@@ -950,7 +960,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
 
                     <SyntaxHighlighter
                       style={activeHighlightStyle}
-                      language={language}
+                      language={language || 'text'}
                       PreTag="div"
                       wrapLongLines={wordWrap}
                       showLineNumbers={showLineNumbers}
