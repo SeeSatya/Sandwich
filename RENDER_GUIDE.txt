@@ -1,0 +1,112 @@
+MARKMIND RENDER GUIDE
+=====================
+How to write content for MarkMind (markdown -> PDF tool).
+Covers: Markdown, Images, Mermaid diagrams, HTML rendering.
+
+-----------------------------------------------------------
+1. MARKDOWN (BASE FORMAT)
+-----------------------------------------------------------
+The input is a standard Markdown (.md) file. Everything below is written
+inside that markdown. Supported: headings (# to ######), bold, italic,
+links, tables (GitHub style), ordered/unordered lists, nested lists,
+blockquotes, horizontal rules, and fenced code blocks with syntax
+highlighting, e.g.:
+
+    ```python
+    print("hello")
+    ```
+
+Raw inline HTML tags are ALSO supported directly in the markdown
+(e.g. <b>, <u>, <span style="color:red">, <div>, <br>, <img>).
+Use them freely for small formatting tweaks.
+
+Extra layout feature - side-by-side columns:
+
+    ::: columns
+    left column content (markdown works here)
+    |||
+    right column content
+    :::
+
+-----------------------------------------------------------
+2. IMAGE RENDER
+-----------------------------------------------------------
+Syntax: [img - option1 - option2 - ... - URL]
+Options separated by " - ", URL always LAST. URL may also be a
+markdown link like [text](url).
+
+Size presets:
+  full        100% width (RECOMMENDED)
+  half        50% width
+  third       33% width
+  quarter     25% width
+  fit         100% width, natural height
+  cover       100% width, 320px tall, cropped
+  semi-cover  50% width, 200px tall, cropped
+  800x600     exact pixel size (width x height)
+  16:9        aspect ratio (also 4:3, 1:1, etc.) (RECOMMENDED)
+  480p/720p/1080p/4k  fixed heights (240/350/450/600px)
+
+Alignment: center (default) | left | right  (left/right float, text wraps)
+Styling:  rounded | circle | shadow | border | grayscale
+
+Examples:
+  [img - full - rounded - shadow - https://example.com/hero.png]
+  [img - 16:9 - cover - https://example.com/banner.jpg]
+  [img - 300x300 - circle - center - https://example.com/avatar.png]
+
+IMPORTANT - IMAGE SIZE RULE:
+Because of how the PDF pages are built, SMALL images (quarter, small
+pixel sizes, tiny floats) can end up not visible / unreadable in the
+final PDF. ALWAYS prefer large formats: "full", "16:9", "cover" or
+similar near-full-page-width options. Default to:
+  [img - full - rounded - URL]   or   [img - 16:9 - cover - URL]
+
+-----------------------------------------------------------
+3. MERMAID DIAGRAM RENDER
+-----------------------------------------------------------
+Fenced code block with language "mermaid" (mermaid v11 syntax):
+
+    ```mermaid
+    flowchart TD
+      A[Start] --> B{Decision}
+      B -->|yes| C[Do thing]
+      B -->|no| D[Stop]
+    ```
+
+Supported: flowchart, sequenceDiagram, classDiagram, stateDiagram-2,
+erDiagram, pie, journey, timeline, gantt, etc.
+Rules:
+  - Keep each flowchart edge on ONE line.
+  - Diagrams are auto-styled to the document theme and auto-fitted
+    (max ~380px tall), so avoid extremely tall/wide diagrams; split
+    huge diagrams into two smaller ones.
+
+-----------------------------------------------------------
+4. HTML RENDER (CUSTOM BLOCKS / DIAGRAMS)
+-----------------------------------------------------------
+For fully custom visuals (cards, banners, charts, layouts) use a fenced
+block with language "html-render". Optional aspect ratio after a colon:
+
+    ```html-render
+    <div style="background:linear-gradient(90deg,#8b5cf6,#ec4899);
+                color:white;padding:24px;border-radius:12px;">
+      Custom banner
+    </div>
+    ```
+
+    ```html-render:16:9
+    <div style="display:flex;height:100%;align-items:center;
+                justify-content:center;background:#0f172a;color:#fff;">
+      Locked to 16:9 box
+    </div>
+    ```
+
+Behavior:
+  - Renders as a full-width block, auto-positioned like an image.
+  - With a ratio (16:9, 4:3, 1:1 ... also written 16x9 or 16/9) the box
+    is locked to that ratio and overflow is clipped.
+  - Inline CSS styles are allowed and encouraged.
+  - Same size rule as images: make it large (full width / 16:9);
+    tiny HTML blocks may not be visible in the final PDF.
+  - Block moves whole to the next page if it does not fit (never split).

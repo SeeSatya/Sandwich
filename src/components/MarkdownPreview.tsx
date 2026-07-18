@@ -905,6 +905,27 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                 const language = match ? match[1] : '';
                 const codeContent = String(children).replace(/\n$/, '');
 
+                // ```html-render``` or ```html-render:16:9``` — render raw HTML
+                // as a block (like an image), optional aspect ratio after colon.
+                const htmlRender = /language-html-render(?::(\d+)[:x/](\d+))?/.exec(className || '');
+                if (htmlRender) {
+                  const ratio = htmlRender[1] ? `${htmlRender[1]} / ${htmlRender[2]}` : undefined;
+                  return (
+                    <div
+                      className="html-render-block"
+                      style={{
+                        width: '100%',
+                        aspectRatio: ratio,
+                        overflow: 'hidden',
+                        margin: '1.5em auto',
+                        display: 'block',
+                        clear: 'both',
+                      }}
+                      dangerouslySetInnerHTML={{ __html: codeContent }}
+                    />
+                  );
+                }
+
                 // react-markdown v9+ no longer passes `inline` — infer it.
                 // Fenced blocks without a language must still render as blocks,
                 // otherwise multi-line code collapses into one nowrap line.
