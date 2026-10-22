@@ -302,6 +302,37 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       const PAGE_SAFETY_PX = 24;
       const MAX_CONTENT_HEIGHT = PAGE_HEIGHT_PX - (marginVertPx * 2) - PAGE_SAFETY_PX;
 
+      // Measure each rendered line's offset (relative to the element's top) and
+      // the line height, using the Range API. Text nodes only — inline elements
+      // (<strong>, <a>, …) share their parent's line box, so walking text nodes
+      // and grouping by rounded y-offset reconstructs every line. Returns null
+      // for empty elements so callers fall back to treating the block as atomic.
+      const measureLines = (el: HTMLElement): { lines: number[]; lineHeight: number } | null => {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        const offsets = new Set<number>();
+        const range = document.createRange();
+        let node = walker.nextNode();
+        let maxBottom = 0;
+        while (node) {
+          if (node.textContent && node.textContent.trim().length > 0) {
+            range.selectNodeContents(node);
+            const rects = range.getClientRects();
+            const elTop = el.getBoundingClientRect().top;
+            for (let i = 0; i < rects.length; i++) {
+              const r = rects[i];
+              if (r.height === 0) continue;
+              offsets.add(Math.round(r.top - elTop));
+              if (r.bottom - elTop > maxBottom) maxBottom = r.bottom - elTop;
+            }
+          }
+          node = walker.nextNode();
+        }
+        const lines = Array.from(offsets).sort((a, b) => a - b);
+        if (lines.length === 0) return null;
+        const lineHeight = lines.length > 1 ? lines[1] - lines[0] : maxBottom;
+        return { lines, lineHeight };
+      };
+
       const children = Array.from(source.children) as HTMLElement[];
       if (children.length === 0) return;
 
@@ -421,14 +452,60 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         } 
         // 2. Doesn't fit, need to handle split
         else {
-          const isUnsplittable = !layout.isList;
+          // Text blocks (paragraphs, blockquotes, …) split at LINE boundaries via
+          // the split-chunk writer. Visual blocks (headers, diagrams, code, tables)
+          // stay atomic so they are never sliced mid-element.
+          const isTextBlock = !layout.isHeader && !layout.isDiagram &&
+            !layout.isCodeBlock && !layout.isList &&
+            (layout.tagName === 'P' || layout.tagName === 'BLOCKQUOTE' ||
+             layout.tagName === 'DIV' || layout.tagName === 'SECTION');
 
-          if (isUnsplittable) {
+          if (isTextBlock) {
+            const measurement = measureLines(layout.element);
+            const elementHeight = layout.element.getBoundingClientRect().height;
+            if (measurement && measurement.lines.length > 1 && elementHeight > 0) {
+              const { lines, lineHeight } = measurement;
+              let prevOffset = 0;
+              let remaining = true;
+              while (remaining) {
+                const avail = MAX_CONTENT_HEIGHT - ((layout.top + prevOffset) - currentPageStartY);
+                const capacity = Math.floor((avail + 0.5) / lineHeight) * lineHeight;
+                // First line of the next chunk (all offsets are element-relative)
+                const nextIdx = lines.findIndex(o => o >= prevOffset - 0.5);
+                if (nextIdx === -1) { remaining = false; break; }
+                const nextOffset = lines[nextIdx];
+                if (capacity < nextOffset - prevOffset + lineHeight) {
+                  // Even one more line won't fit — start a fresh page
+                  createNewPage(layout.top + prevOffset);
+                  continue;
+                }
+                const chunkHeight = Math.min(capacity, elementHeight - prevOffset);
+                const isLast = prevOffset + chunkHeight >= elementHeight - lineHeight * 0.5;
+                currentPageItems.push({
+                  type: 'split-chunk',
+                  element: layout.element,
+                  chunkHeight,
+                  offset: prevOffset,
+                  isFirst: prevOffset === 0,
+                  isLast,
+                  marginTop: layout.element.style.marginTop,
+                  marginBottom: layout.element.style.marginBottom
+                });
+                prevOffset += chunkHeight;
+                if (isLast) { remaining = false; } else { createNewPage(layout.top + prevOffset); }
+              }
+              continue;
+            }
+            // Couldn't measure lines — fall through to atomic behaviour below
+          }
+
+          if (!layout.isList) {
+            // Atomic block that doesn't fit — push whole to a fresh page.
             if (currentPageItems.length > 0) {
               createNewPage(layout.top);
             }
             currentPageItems.push({ type: 'full', element: layout.element });
-          } 
+          }
           // Handle Lists
           else if (layout.isList && layout.listItems.length > 0) {
             const listItems = layout.listItems;
@@ -568,8 +645,12 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
               chunkWrapper.style.marginTop = item.marginTop || '0';
             }
             const chunkContent = item.element.cloneNode(true) as HTMLElement;
+            // Inline styles beat the stylesheet's margin rules (incl. the
+            // `!important` heading margins and `:first-child` margin-top:0), so
+            // the negative top margin reliably shifts the slice into view.
             chunkContent.style.margin = '0';
             chunkContent.style.marginTop = `-${item.offset}px`;
+            chunkContent.style.marginBottom = '0';
 
             chunkWrapper.appendChild(chunkContent);
             wrapper.appendChild(chunkWrapper);
@@ -888,14 +969,33 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         }
 
         @media print {
+           /* Page the browser prints onto must match the .page box exactly,
+              otherwise a 297mm page spills a sliver onto a trailing sheet
+              (the "mostly-blank last page with a colored strip" bug). */
+           @page {
+             size: A4 portrait;
+             margin: 0;
+           }
            html, body {
              background: white !important;
              margin: 0 !important;
              padding: 0 !important;
            }
+           /* The hidden measurement source must not occupy layout space when
+              printing — it is what created the blank first page. */
+           .markdown-source {
+             display: none !important;
+           }
+           /* Kill the 2rem breathing room around the page stack in print —
+              it shifts every page down and adds leading/trailing blank space. */
+           .markdown-pages {
+             padding-top: 0 !important;
+             padding-bottom: 0 !important;
+           }
            .page {
              transform: none !important;
              margin: 0 !important;
+             margin-bottom: 0 !important; /* beat the screen-only !important scale margin */
              box-shadow: none !important;
              border: none !important;
              page-break-after: always !important;
@@ -1031,7 +1131,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
 
         <div
           ref={targetRef}
-          className="w-full min-w-fit flex flex-col items-center"
+          className="markdown-pages w-full min-w-fit flex flex-col items-center"
           style={{ paddingTop: '2rem', paddingBottom: '2rem' }}
         />
       </div>
