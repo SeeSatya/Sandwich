@@ -77,6 +77,22 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
         fontFamily: theme.fonts.body,
         fontSize: '14px',
 
+        // xychart-beta: needs its own namespace, otherwise lines/axes fall
+        // back to defaults that can be invisible on dark/custom themes
+        xyChart: {
+          backgroundColor: 'transparent',
+          titleColor: theme.colors.heading,
+          xAxisLabelColor: textColor,
+          xAxisTitleColor: textColor,
+          xAxisTickColor: textColor,
+          xAxisLineColor: theme.colors.secondary || '#6b7280',
+          yAxisLabelColor: textColor,
+          yAxisTitleColor: textColor,
+          yAxisTickColor: textColor,
+          yAxisLineColor: theme.colors.secondary || '#6b7280',
+          plotColorPalette: palette.join(','),
+        },
+
         // Note styling
         noteBkgColor: theme.isDark ? theme.colors.codeBackground : '#fefce8',
         noteTextColor: textColor,
@@ -110,6 +126,9 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
       },
       pie: {
         useMaxWidth: true
+      },
+      xyChart: {
+        useMaxWidth: true
       }
     };
     mermaid.initialize(config);
@@ -139,8 +158,16 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
         }
 
         const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
-        const { svg } = await mermaid.render(id, processedChart);
-        
+        let { svg } = await mermaid.render(id, processedChart);
+
+        // Some chart types (xychart) emit fixed width/height without a
+        // viewBox, so CSS can only crop them, never scale them. Add the
+        // viewBox so the svg scales like an image.
+        if (!/viewBox=/.test(svg)) {
+          const m = /<svg[^>]*?width="([\d.]+)(?:px)?"[^>]*?height="([\d.]+)(?:px)?"/.exec(svg);
+          if (m) svg = svg.replace('<svg', `<svg viewBox="0 0 ${m[1]} ${m[2]}"`);
+        }
+
         if (active) {
           setSvg(svg);
           setError(null);
@@ -188,14 +215,9 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
         className="max-w-full"
         dangerouslySetInnerHTML={{ __html: svg }}
       />
-      <div
-        className="mt-4 text-[9px] font-black uppercase tracking-[0.2em]"
-        style={{ color: theme.isDark ? theme.colors.secondary : '#cbd5e1' }}
-      >
-        Generated Diagram
-      </div>
       <style>{`
         .mermaid-container svg {
+          width: 100% !important;
           max-width: 100% !important;
           max-height: 380px !important;
           height: auto !important;

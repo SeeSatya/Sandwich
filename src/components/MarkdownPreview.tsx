@@ -691,12 +691,13 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
          /* STRICT text styling to match split logic — applied to BOTH the hidden
             measurement source and the rendered pages so measured heights match
             rendered heights exactly (otherwise lines get clipped at page bottom). */
-         :is(.page, .markdown-source) :is(p, li, h1, h2, h3, h4, h5, h6, blockquote, table, a, strong, em) {
+         :is(.page, .markdown-source) :is(p, li, h1, h2, h3, h4, h5, h6, blockquote, table, a, strong, em):not(.html-render-block *) {
              line-height: 1.5 !important;
          }
-         .page :is(p, li, blockquote, td, a, strong, em) {
+         .page :is(p, li, blockquote, td, a, strong, em):not(.html-render-block *) {
              color: ${theme.colors.text} !important;
          }
+         /* html-render blocks style themselves — theme must not repaint them */
          
          /* Floated elements clear for main blocks */
          .page h1, .page h2, .page h3, .page h4, .page h5, .page h6, 
@@ -764,7 +765,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
          }
 
          /* Headers logic */
-         h1, h2, h3, h4, h5, h6 { 
+         :is(h1, h2, h3, h4, h5, h6):not(.html-render-block *) {
             font-family: ${theme.fonts.heading} !important; 
             color: ${theme.colors.heading} !important; 
             line-height: 1.2;
@@ -772,9 +773,9 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             margin-bottom: 0.8em;
           }
           h1:first-child, h2:first-child, p:first-child { margin-top: 0; }
-          h1 { font-size: 2.25em !important; font-weight: 800 !important; letter-spacing: -0.025em; }
-          h2 { font-size: 1.6em !important; font-weight: 700 !important; letter-spacing: -0.025em; border-bottom: 2px solid ${theme.colors.primary}30 !important; padding-bottom: 0.3em; }
-          h3 { 
+          h1:not(.html-render-block *) { font-size: 2.25em !important; font-weight: 800 !important; letter-spacing: -0.025em; }
+          h2:not(.html-render-block *) { font-size: 1.6em !important; font-weight: 700 !important; letter-spacing: -0.025em; border-bottom: 2px solid ${theme.colors.primary}30 !important; padding-bottom: 0.3em; }
+          h3:not(.html-render-block *) {
             font-size: 1.3em !important; 
             font-weight: 700 !important; 
             letter-spacing: -0.02em;
@@ -782,10 +783,10 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             padding-left: 0.75em;
             margin-top: 1.8em;
           }
-          h4 { font-size: 1.15em !important; font-weight: 600 !important; }
-          h5 { font-size: 1.05em !important; font-weight: 600 !important; }
-          h6 { font-size: 1em !important; font-weight: 600 !important; text-transform: uppercase; letter-spacing: 0.05em; }
-          p {
+          h4:not(.html-render-block *) { font-size: 1.15em !important; font-weight: 600 !important; }
+          h5:not(.html-render-block *) { font-size: 1.05em !important; font-weight: 600 !important; }
+          h6:not(.html-render-block *) { font-size: 1em !important; font-weight: 600 !important; text-transform: uppercase; letter-spacing: 0.05em; }
+          p:not(.html-render-block *) {
             margin-bottom: 1.2em;
             line-height: 1.65;
             color: ${theme.colors.text} !important;
@@ -797,12 +798,12 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             font-size: 12pt !important;
             padding: 25.4mm 25.4mm 25.4mm 38.1mm !important; /* top/right/bottom 1in, left 1.5in */
           }
-          .page p, .page li {
+          .page :is(p, li):not(.html-render-block *) {
             text-align: justify !important;
             line-height: 1.5 !important;
             font-size: 12pt !important;
           }
-          .page h1, .page h2, .page h3, .page h4, .page h5, .page h6 {
+          .page :is(h1, h2, h3, h4, h5, h6):not(.html-render-block *) {
             line-height: 1 !important;
             text-align: left !important;
             letter-spacing: 0 !important;
@@ -811,14 +812,14 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             border-left: none !important;
             padding-left: 0 !important;
           }
-          .page h1 { font-size: 16pt !important; font-weight: 700 !important; }
-          .page h2 { font-size: 14pt !important; font-weight: 700 !important; }
-          .page h3 { font-size: 13pt !important; font-weight: 700 !important; }
-          .page h4, .page h5, .page h6 { font-size: 12pt !important; font-weight: 700 !important; }
-          .page table, .page td, .page th { font-size: 10pt !important; }
+          .page h1:not(.html-render-block *) { font-size: 16pt !important; font-weight: 700 !important; }
+          .page h2:not(.html-render-block *) { font-size: 14pt !important; font-weight: 700 !important; }
+          .page h3:not(.html-render-block *) { font-size: 13pt !important; font-weight: 700 !important; }
+          .page :is(h4, h5, h6):not(.html-render-block *) { font-size: 12pt !important; font-weight: 700 !important; }
+          .page :is(table, td, th):not(.html-render-block *) { font-size: 10pt !important; }
           ` : ''}
 
-          table {
+          table:not(.html-render-block *) {
             width: 100%;
             max-width: 100%;
             margin: 1.5em 0;
@@ -827,25 +828,25 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             font-size: 0.92em;
             overflow-wrap: anywhere;
           }
-          thead {
+          thead:not(.html-render-block *) {
             background-color: ${theme.colors.primary}14;
           }
-          th, td {
+          :is(th, td):not(.html-render-block *) {
             padding: 0.75em 0.9em;
             border: 1px solid ${theme.colors.border || `${theme.colors.primary}33`};
             text-align: left;
             vertical-align: top;
             line-height: 1.45 !important;
           }
-          th {
+          th:not(.html-render-block *) {
             color: ${theme.colors.heading} !important;
             font-weight: 800;
             white-space: nowrap;
           }
-          td {
+          td:not(.html-render-block *) {
             color: ${theme.colors.text} !important;
           }
-          tbody tr:nth-child(even) {
+          tbody tr:nth-child(even):not(.html-render-block *) {
             background-color: ${theme.colors.primary}08;
           }
           .page-content > table {
