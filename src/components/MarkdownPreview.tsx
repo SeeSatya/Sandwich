@@ -310,7 +310,8 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       const layouts = children.map(child => {
         const isHeader = /^H[1-6]$/.test(child.tagName);
         const isDiagram = child.classList.contains('mermaid-container') ||
-          child.querySelector('.mermaid-container') !== null;
+          child.classList.contains('diagram-container') ||
+          child.querySelector('.mermaid-container, .diagram-container') !== null;
         const isCodeBlock = child.tagName === 'PRE' ||
           child.classList.contains('code-block-wrapper') ||
           child.querySelector('.code-block-wrapper') !== null;
@@ -403,8 +404,8 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         // itself does not get clipped by the page bottom.
         if (layout.isHeader && spaceLeft < 120) {
           createNewPage(layout.top);
-        } else if (layout.isCodeBlock && spaceLeft < layout.height + 10) {
-          // Push code blocks to next page if not enough space for full block
+        } else if ((layout.isCodeBlock || layout.isDiagram) && spaceLeft < layout.height + 10) {
+          // Push unsplittable visual blocks to next page if there is not enough space.
           if (currentPageItems.length > 0) {
             createNewPage(layout.top);
           }
@@ -702,6 +703,23 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
          .page hr, .page table, .page .code-block-wrapper, .page blockquote, 
          .page ul, .page ol, .page .diagram-container {
              clear: both;
+         }
+
+         .diagram-container {
+            max-width: 100%;
+            box-sizing: border-box;
+            break-inside: avoid;
+            page-break-inside: avoid;
+         }
+         .diagram-container svg {
+            max-width: 100%;
+            height: auto;
+            overflow: visible;
+         }
+         .diagram-svg-renderer {
+            max-width: 100%;
+            break-inside: avoid;
+            page-break-inside: avoid;
          }
          
          /* Side-by-side columns (::: columns / ||| / :::) */
