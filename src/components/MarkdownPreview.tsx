@@ -438,12 +438,13 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
 
       interface LineEntry {
         block: any;           // layout record
+        kind: 'full' | 'line' | 'list-item';
         offsetTop: number;    // px from the block's own top to this line's top
         offsetBottom: number; // px from the block's top to this line's bottom
         absTop: number;       // absolute top in the source document
         absBottom: number;
-        atomic: boolean;      // true => this entry is an unbreakable group
         listIndex?: number;   // for list items
+        liElement?: HTMLElement; // for list items
       }
 
       const lineStream: LineEntry[] = [];
@@ -453,12 +454,15 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         const contentH = layout.element.getBoundingClientRect().height;
 
         if (layout.isList && layout.listItems.length > 0) {
+          // Each list item is its own unbreakable group, rendered as a
+          // list-split so the <ol>/<ul> wrapper + numbering are preserved.
           for (let li = 0; li < layout.listItems.length; li++) {
             const item = layout.listItems[li];
             lineStream.push({
-              block: layout, offsetTop: 0, offsetBottom: item.height,
+              block: layout, kind: 'list-item',
+              offsetTop: 0, offsetBottom: item.height,
               absTop: item.top, absBottom: item.bottom,
-              atomic: true, listIndex: li
+              listIndex: li, liElement: item.element
             });
           }
         } else {
@@ -466,11 +470,14 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             !(layout.tagName === 'P' || layout.tagName === 'BLOCKQUOTE' ||
               layout.tagName === 'DIV' || layout.tagName === 'SECTION');
           const m = measureLines(layout.element);
-          if (atomic || !m || m.lines.length === 0) {
+          // Blocks that contain non-text media (images, iframes, raw HTML
+          // render blocks) must never be sliced, even if their tag is P/DIV.
+          const hasMedia = layout.element.querySelector('img, iframe, video, .html-render-block, svg') !== null;
+          if (atomic || hasMedia || !m || m.lines.length === 0) {
             lineStream.push({
-              block: layout, offsetTop: 0, offsetBottom: contentH,
-              absTop: layout.top, absBottom: layout.top + contentH,
-              atomic: true
+              block: layout, kind: 'full',
+              offsetTop: 0, offsetBottom: contentH,
+              absTop: layout.top, absBottom: layout.top + contentH
             });
           } else {
             const offs = m.lines;
@@ -478,37 +485,89 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
               const oTop = offs[k];
               const oBottom = (k + 1 < offs.length) ? offs[k + 1] : contentH;
               lineStream.push({
-                block: layout, offsetTop: oTop, offsetBottom: oBottom,
-                absTop: layout.top + oTop, absBottom: layout.top + oBottom, atomic: false
+                block: layout, kind: 'line',
+                offsetTop: oTop, offsetBottom: oBottom,
+                absTop: layout.top + oTop, absBottom: layout.top + oBottom
               });
             }
           }
         }
       }
 
-      // Pack lines into pages
+      // Order everything by position (lists interleave their items)
+      lineStream.sort((a, b) => a.absTop - b.absTop);
+
+      // Pack entries into pages. Entry kinds:
+      //  'list-item' → grouped into list-split runs (preserves <ol>/<ul> + numbering)
+      //  'full'      → atomic block (header / code / diagram / media / short text)
+      //  'line'      → one measured line of a splittable text block
       let lineIdx = 0;
       const total = lineStream.length;
+
       while (lineIdx < total) {
         const first = lineStream[lineIdx];
-        // If the current (last) page is empty, adopt this line's absTop as its
-        // start so "space used" is measured from the actual first line.
-        const lastPage = pagesData[pagesData.length - 1];
         if (currentPageItems.length === 0) {
+          // Adopt the first entry's absolute top as this page's content start.
           currentPageStartY = first.absTop;
+          currentPageItems = pagesData[pagesData.length - 1].items;
         }
         const avail = MAX_CONTENT_HEIGHT - (first.absTop - currentPageStartY);
 
-        // Orphan protection: a header alone near the bottom gets pushed.
-        if (first.block.isHeader && avail < 120) {
+        // ---- list item run ----
+        if (first.kind === 'list-item') {
+          const block = first.block;
+          const fit: LineEntry[] = [];
+          let k = lineIdx;
+          while (k < total && lineStream[k].kind === 'list-item' && lineStream[k].block === block &&
+                 (lineStream[k].absBottom - currentPageStartY) <= MAX_CONTENT_HEIGHT + 0.5) {
+            fit.push(lineStream[k]);
+            k++;
+          }
+          if (fit.length > 0) {
+            currentPageItems.push({
+              type: 'list-split',
+              element: block.element,
+              tagName: block.tagName,
+              className: block.className,
+              start: fit[0].listIndex + 1,
+              items: fit.map(f => f.liElement as HTMLElement)
+            });
+            lineIdx = k;
+            // More items of the same list remain → next page
+            if (lineIdx < total && lineStream[lineIdx].kind === 'list-item' && lineStream[lineIdx].block === block) {
+              createNewPage(lineStream[lineIdx].absTop);
+            }
+            continue;
+          }
+          // none fit → next page (force-place one if page is empty)
+          if (currentPageItems.length === 0) {
+            currentPageItems.push({
+              type: 'list-split',
+              element: block.element,
+              tagName: block.tagName,
+              className: block.className,
+              start: first.listIndex + 1,
+              items: [first.liElement as HTMLElement]
+            });
+            lineIdx++;
+            createNewPage(lineIdx < total ? lineStream[lineIdx].absTop : first.absTop);
+            continue;
+          }
           createNewPage(first.absTop);
           continue;
         }
 
-        if (first.atomic) {
+        // ---- atomic block ----
+        if (first.kind === 'full') {
           const groupH = first.absBottom - first.absTop;
+          // Orphan protection: a heading needs room for itself + a following
+          // line, but 120px was so generous it left large gaps → use ~1 line.
+          if (first.block.isHeader && avail < 56) {
+            createNewPage(first.absTop);
+            continue;
+          }
           if (groupH <= avail + 0.5) {
-            if ((first.block.isDiagram || first.block.isCodeBlock) && first.listIndex === undefined) {
+            if (first.block.isDiagram || first.block.isCodeBlock) {
               const fitRatio = avail / groupH;
               if (fitRatio >= 0.55 && fitRatio < 1 && currentPageItems.length > 0) {
                 currentPageItems.push({ type: 'full', element: first.block.element, fitScale: fitRatio });
@@ -519,28 +578,22 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             currentPageItems.push({ type: 'full', element: first.block.element });
             lineIdx++;
             continue;
-          } else {
-            if (currentPageItems.length > 0) {
-              createNewPage(first.absTop);
-              continue;
-            } else {
-              // Page empty: force-place (oversized block on a fresh page)
-              currentPageItems.push({ type: 'full', element: first.block.element });
-              lineIdx++;
-              continue;
-            }
           }
+          // Doesn't fit → push to next page (unless page empty → force-place)
+          if (currentPageItems.length > 0) { createNewPage(first.absTop); continue; }
+          currentPageItems.push({ type: 'full', element: first.block.element });
+          lineIdx++;
+          continue;
         }
 
-        // Non-atomic (text) line: collect consecutive lines of the SAME block
-        // that fit on this page, emit one split-chunk for them, then break page.
+        // ---- text lines ----
         const block = first.block;
         let endIdx = lineIdx;
         let chunkBottomAbs = first.absTop;
         while (endIdx < total) {
           const le = lineStream[endIdx];
-          if (le.block !== block || le.atomic) break;
-          if (le.absBottom - currentPageStartY <= MAX_CONTENT_HEIGHT + 0.5) {
+          if (le.block !== block || le.kind !== 'line') break;
+          if ((le.absBottom - currentPageStartY) <= MAX_CONTENT_HEIGHT + 0.5) {
             chunkBottomAbs = le.absBottom;
             endIdx++;
           } else {
@@ -551,7 +604,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         if (endIdx > lineIdx) {
           const offset = first.offsetTop;
           const chunkHeight = chunkBottomAbs - first.absTop;
-          const isLastLine = endIdx >= total || lineStream[endIdx].block !== block;
+          const isLastLine = endIdx >= total || lineStream[endIdx].block !== block || lineStream[endIdx].kind !== 'line';
           currentPageItems.push({
             type: 'split-chunk',
             element: block.element,
@@ -563,26 +616,26 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             marginBottom: block.element.style.marginBottom
           });
           lineIdx = endIdx;
-          if (lineIdx < total && lineStream[lineIdx].block === block && !lineStream[lineIdx].atomic) {
+          if (lineIdx < total && lineStream[lineIdx].block === block && lineStream[lineIdx].kind === 'line') {
             createNewPage(lineStream[lineIdx].absTop);
           }
-        } else {
-          // Not even one line fits → new page (guard: page empty => force-place one line)
-          if (currentPageItems.length === 0) {
-            currentPageItems.push({
-              type: 'split-chunk',
-              element: block.element,
-              chunkHeight: first.offsetBottom,
-              offset: first.offsetTop,
-              isFirst: first.offsetTop === 0,
-              isLast: false,
-              marginTop: block.element.style.marginTop,
-              marginBottom: block.element.style.marginBottom
-            });
-            lineIdx++;
-          }
-          createNewPage(lineIdx < total ? lineStream[lineIdx].absTop : first.absTop);
+          continue;
         }
+        // Not even one line fits → new page (force-place one line if page empty)
+        if (currentPageItems.length === 0) {
+          currentPageItems.push({
+            type: 'split-chunk',
+            element: block.element,
+            chunkHeight: first.offsetBottom - first.offsetTop,
+            offset: first.offsetTop,
+            isFirst: first.offsetTop === 0,
+            isLast: false,
+            marginTop: block.element.style.marginTop,
+            marginBottom: block.element.style.marginBottom
+          });
+          lineIdx++;
+        }
+        createNewPage(lineIdx < total ? lineStream[lineIdx].absTop : first.absTop);
       }
 
       // Write Phase: Construct HTML in one go
