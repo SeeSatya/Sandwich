@@ -681,6 +681,33 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         wrapper.style.overflow = 'hidden';
         page.appendChild(wrapper);
 
+        // Night Sky: decorative star tracks in the page margins. Absolute +
+        // pointer-events:none ⇒ they never affect measurement or pagination.
+        if (theme.name === 'Night Sky') {
+          const starTrack = (side: 'left' | 'right') => {
+            const host = document.createElement('div');
+            host.innerHTML = `<svg class="page-star-track ${side}" viewBox="0 0 40 1000" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M20 60 L21.5 68 L28 70 L21.5 72 L20 80 L18.5 72 L12 70 L18.5 68 Z" fill="#E2E8F0" opacity="0.7"/>
+              <path d="M16 260 L17.2 265 L22 266 L17.2 267 L16 272 L14.8 267 L10 266 L14.8 265 Z" fill="#818CF8" opacity="0.8"/>
+              <path d="M24 490 L25.5 496 L31 498 L25.5 500 L24 506 L22.5 500 L17 498 L22.5 496 Z" fill="#E2E8F0" opacity="0.6"/>
+              <path d="M18 730 L19.2 735 L24 736 L19.2 737 L18 742 L16.8 737 L12 736 L16.8 735 Z" fill="#818CF8" opacity="0.75"/>
+              <path d="M22 910 L23.5 917 L29 919 L23.5 921 L22 928 L20.5 921 L15 919 L20.5 917 Z" fill="#E2E8F0" opacity="0.7"/>
+              <circle cx="12" cy="120" r="1.5" fill="#818CF8" opacity="0.6"/>
+              <circle cx="28" cy="180" r="1.0" fill="#E2E8F0" opacity="0.45"/>
+              <circle cx="14" cy="340" r="1.8" fill="#E2E8F0" opacity="0.7"/>
+              <circle cx="26" cy="410" r="1.2" fill="#818CF8" opacity="0.55"/>
+              <circle cx="12" cy="580" r="1.4" fill="#818CF8" opacity="0.65"/>
+              <circle cx="27" cy="650" r="1.0" fill="#E2E8F0" opacity="0.4"/>
+              <circle cx="15" cy="810" r="1.6" fill="#E2E8F0" opacity="0.7"/>
+              <circle cx="26" cy="860" r="1.2" fill="#818CF8" opacity="0.55"/>
+              <circle cx="14" cy="960" r="1.5" fill="#818CF8" opacity="0.6"/>
+            </svg>`;
+            return host.firstElementChild as HTMLElement;
+          };
+          page.appendChild(starTrack('left'));
+          page.appendChild(starTrack('right'));
+        }
+
         if (showPageNumbers && pageData.pageNum > 1) {
           const pageNumDiv = document.createElement('div');
           pageNumDiv.className = 'page-number';
@@ -918,6 +945,26 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             min-width: 0; /* let tables/diagrams shrink instead of overflowing */
          }
          .md-column > :first-child { margin-top: 0; }
+
+         /* Night Sky decorative star tracks in the page margins.
+            position:absolute + pointer-events:none ⇒ zero pagination impact. */
+         .page-star-track {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 12mm;
+            pointer-events: none;
+            z-index: 1;
+            overflow: hidden;
+         }
+         .page-star-track.left { left: 2mm; }
+         .page-star-track.right { right: 2mm; }
+         @media print {
+           .page-star-track {
+             -webkit-print-color-adjust: exact !important;
+             print-color-adjust: exact !important;
+           }
+         }
 
          /* Limit Mermaid diagram size. No transform:scale here — a transform
             shrinks the drawing but NOT its layout box, which left large blank
