@@ -465,26 +465,41 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         }
 
         const elementBottom = layout.bottom;
-        
+
+        // Text blocks (paragraphs, blockquotes, …) can split at LINE boundaries.
+        const isTextBlock = !layout.isHeader && !layout.isDiagram &&
+          !layout.isCodeBlock && !layout.isList &&
+          (layout.tagName === 'P' || layout.tagName === 'BLOCKQUOTE' ||
+           layout.tagName === 'DIV' || layout.tagName === 'SECTION');
+
         // 1. Fits completely
-        if (elementBottom - currentPageStartY <= MAX_CONTENT_HEIGHT) {
+        let fits = elementBottom - currentPageStartY <= MAX_CONTENT_HEIGHT;
+        let textLines: number[] | null = null;
+        let textHeight = 0;
+        if (isTextBlock) {
+          textHeight = layout.element.getBoundingClientRect().height;
+          if (textHeight > 0) {
+            const m = measureLines(layout.element);
+            if (m) textLines = m.lines;
+          }
+        }
+        // Decide "fits" against the LAST line's real bottom, not the element's
+        // box height + a fixed safety buffer. This stops a paragraph whose last
+        // line would clip (the gap you highlighted) from being placed whole.
+        if (fits && textLines && textLines.length > 0) {
+          const avail = MAX_CONTENT_HEIGHT - (layout.top - currentPageStartY);
+          const lastBottom = textHeight; // last line's bottom == element height
+          if (lastBottom > avail + 0.5) fits = false;
+        }
+
+        if (fits) {
           currentPageItems.push({ type: 'full', element: layout.element });
-        } 
+        }
         // 2. Doesn't fit, need to handle split
         else {
-          // Text blocks (paragraphs, blockquotes, …) split at LINE boundaries via
-          // the split-chunk writer. Visual blocks (headers, diagrams, code, tables)
-          // stay atomic so they are never sliced mid-element.
-          const isTextBlock = !layout.isHeader && !layout.isDiagram &&
-            !layout.isCodeBlock && !layout.isList &&
-            (layout.tagName === 'P' || layout.tagName === 'BLOCKQUOTE' ||
-             layout.tagName === 'DIV' || layout.tagName === 'SECTION');
-
-          if (isTextBlock) {
-            const measurement = measureLines(layout.element);
-            const elementHeight = layout.element.getBoundingClientRect().height;
-            if (measurement && measurement.lines.length > 1 && elementHeight > 0) {
-              const { lines } = measurement;
+          if (isTextBlock && textLines && textLines.length > 1 && textHeight > 0) {
+              const lines = textLines;
+              const elementHeight = textHeight;
               // The true bottom of line i is the start of line i+1 (the last
               // line's bottom is the element height). Cutting at a measured
               // line boundary — never a computed multiple of line-height —
@@ -530,9 +545,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
               if (!bailOut) {
                 continue;
               }
-              // bailOut: fall through to atomic treatment below
-            }
-            // Couldn't measure lines — fall through to atomic behaviour below
+              // bailOut / unmeasurable: fall through to atomic treatment below
           }
 
           if (!layout.isList) {
@@ -798,6 +811,11 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       className="relative w-full h-full flex flex-col items-center overflow-x-auto overflow-y-scroll custom-scrollbar print:min-h-screen print:overflow-visible print:block"
       style={{
         backgroundColor: theme.isDark ? '#262626' : '#f3f4f6',
+        /* Always reserve the scrollbar gutter: in Edge/Chromium the scrollbar
+           appearing/disappearing changes the content width, which re-triggers
+           pagination and makes the preview oscillate ("dancing"). A stable
+           gutter removes the width change entirely. */
+        scrollbarGutter: 'stable',
       }}
     >
       <style>{`
