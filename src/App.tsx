@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { generateThemeFromText } from './services/geminiService';
 import { generatePdf } from './services/pdfService';
 import { exportDocx } from './docxExport';
 import MarkdownPreview from './components/MarkdownPreview';
@@ -8,7 +7,6 @@ import {
   DocumentTextIcon,
   DocumentArrowDownIcon,
   PrinterIcon,
-  SparklesIcon,
   TrashIcon,
   ArrowPathIcon,
   PencilSquareIcon,
@@ -210,7 +208,6 @@ function App() {
   // Custom Color State
   const [customColor, setCustomColor] = useState<string>('#6750A4');
 
-  const [isGeneratingTheme, setIsGeneratingTheme] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
 
   // DOCX export progress (null = idle)
@@ -247,23 +244,6 @@ function App() {
       setDocxProgress(null);
       console.error(e);
       alert('DOCX export failed. See console for details.');
-    }
-  };
-
-  const handleAITheme = async () => {
-    if (!process.env.API_KEY) {
-      alert("API_KEY environment variable is missing.");
-      return;
-    }
-    setIsGeneratingTheme(true);
-    try {
-      const newTheme = await generateThemeFromText(markdown);
-      setTheme(newTheme);
-      if (window.innerWidth < 768) setViewMode('preview');
-    } catch (error) {
-      alert("Style generation failed. Please check your connection.");
-    } finally {
-      setIsGeneratingTheme(false);
     }
   };
 
@@ -423,16 +403,6 @@ function App() {
             <TileButton active={codeBlockBorder} onClick={() => setCodeBlockBorder(!codeBlockBorder)} tip="Code container border" icon={<Square2StackIcon className="w-4 h-4" />} />
           </div>
 
-          {/* Acc-Row 3: AI style (4 cols) */}
-          <button
-            onClick={handleAITheme}
-            disabled={isGeneratingTheme}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-docit-accent text-docit-text text-xs font-bold hover:bg-docit-accent-hover shadow-[0_4px_14px_rgba(106,44,107,0.4)] active:scale-[0.98] disabled:opacity-50 transition-all"
-            title="Generate a theme from your document with Gemini"
-          >
-            {isGeneratingTheme ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : <SparklesIcon className="w-4 h-4" />}
-            {isGeneratingTheme ? 'Generating…' : 'AI Style with Gemini'}
-          </button>
         </div>
       )}
     </div>
@@ -443,18 +413,18 @@ function App() {
       {/* DOCX export progress overlay */}
       {docxProgress && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm print:hidden">
-          <div className="w-80 max-w-[90vw] bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl p-6 space-y-4">
+          <div className="w-80 max-w-[90vw] bg-docit-bg-deep border border-docit-border rounded-2xl shadow-2xl p-6 space-y-4">
             <div className="flex items-center space-x-2">
-              <DocumentTextIcon className="w-5 h-5 text-violet-400" />
-              <span className="text-sm font-bold text-zinc-100">Building DOCX</span>
+              <DocumentTextIcon className="w-5 h-5 text-docit-accent-glow" />
+              <span className="text-sm font-bold text-docit-text">Building DOCX</span>
             </div>
-            <div className="h-2 w-full bg-zinc-800 rounded-full overflow-hidden">
+            <div className="h-2 w-full bg-docit-elevated rounded-full overflow-hidden">
               <div
-                className="h-full bg-violet-500 transition-all duration-200 ease-out"
+                className="h-full bg-docit-accent transition-all duration-200 ease-out"
                 style={{ width: `${docxProgress.pct}%` }}
               />
             </div>
-            <div className="flex justify-between text-xs text-zinc-400">
+            <div className="flex justify-between text-xs text-docit-text-muted">
               <span>{docxProgress.label}</span>
               <span className="font-mono">{docxProgress.pct}%</span>
             </div>
@@ -512,7 +482,7 @@ function App() {
       `}</style>
 
       {/* Main Container styled with Railway Dark Mode */}
-      <div className="h-screen overflow-hidden bg-zinc-950 text-zinc-100 font-sans flex flex-col print:h-auto print:min-h-screen print:overflow-visible print:bg-transparent selection:bg-violet-500/30 selection:text-violet-300">
+      <div className="h-screen overflow-hidden bg-docit-bg-deep text-docit-text font-sans flex flex-col print:h-auto print:min-h-screen print:overflow-visible print:bg-transparent selection:bg-docit-accent/30 selection:text-docit-text">
         
         {/* DocIT compact header */}
         <header className="h-14 shrink-0 flex items-center justify-between px-3 md:px-5 bg-docit-bg border-b border-docit-border print:hidden z-50">
@@ -535,14 +505,6 @@ function App() {
 
           {/* Actions — icon-only, tooltips carry the labels */}
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={handleAITheme}
-              disabled={isGeneratingTheme}
-              className="p-2.5 rounded-full bg-docit-accent text-docit-text hover:bg-docit-accent-hover shadow-[0_4px_14px_rgba(106,44,107,0.4)] active:scale-95 disabled:opacity-50 transition-all select-none"
-              title={isGeneratingTheme ? 'Generating theme…' : 'AI Style (Gemini)'}
-            >
-              {isGeneratingTheme ? <ArrowPathIcon className="w-5 h-5 animate-spin" /> : <SparklesIcon className="w-5 h-5" />}
-            </button>
             <button
               onClick={handlePrint}
               className="p-2.5 rounded-full bg-docit-surface border border-docit-border text-docit-text-muted hover:text-docit-text hover:bg-docit-elevated hover:border-docit-border-light active:scale-95 transition-all select-none"
@@ -576,15 +538,15 @@ function App() {
           {/* Left Config Sidebar (Desktop) */}
           <aside
             className={`
-              shrink-0 self-stretch h-full border-r border-zinc-800 bg-[#09090b] flex-col overflow-y-auto custom-scrollbar
+              shrink-0 self-stretch h-full border-r border-docit-border bg-docit-bg flex-col overflow-y-auto custom-scrollbar
               hidden md:flex transition-all duration-300
               ${isSidebarOpen ? 'w-80 p-6 space-y-6 opacity-100' : 'w-0 p-0 opacity-0 overflow-hidden border-none'}
               print:hidden
             `}
           >
             <div className="flex justify-between items-center pb-2">
-              <span className="text-[10px] font-black tracking-widest text-zinc-500 uppercase">Configuration</span>
-              <span className="text-[8px] font-bold text-zinc-600 bg-zinc-900/80 px-1.5 py-0.5 rounded border border-zinc-800">Local</span>
+              <span className="text-[10px] font-black tracking-widest text-docit-text-tertiary uppercase">Configuration</span>
+              <span className="text-[8px] font-bold text-docit-text-tertiary bg-docit-surface/80 px-1.5 py-0.5 rounded border border-docit-border">Local</span>
             </div>
             {renderSettingsControls()}
           </aside>
@@ -600,25 +562,25 @@ function App() {
                 print:hidden
               `}
             >
-              <div className="flex-1 min-h-0 flex flex-col bg-zinc-950 md:rounded-2xl border border-zinc-850 shadow-2xl overflow-hidden focus-within:ring-2 focus-within:ring-violet-500/30 focus-within:border-violet-500/70 transition-all">
+              <div className="flex-1 min-h-0 flex flex-col bg-docit-bg-deep md:rounded-2xl border border-docit-border shadow-2xl overflow-hidden focus-within:ring-2 focus-within:ring-docit-accent/40 focus-within:border-docit-accent-glow transition-all">
                 {/* Editor File Tab Header */}
-                <div className="h-11 border-b border-zinc-850 bg-zinc-950 px-4 md:px-5 flex items-center justify-between select-none shrink-0">
+                <div className="h-11 border-b border-docit-border bg-docit-bg-deep px-4 md:px-5 flex items-center justify-between select-none shrink-0">
                   <div className="flex items-center space-x-1.5">
                     <div className="flex space-x-1">
-                      <div className="w-2.5 h-2.5 rounded-full bg-zinc-800" />
-                      <div className="w-2.5 h-2.5 rounded-full bg-zinc-800" />
-                      <div className="w-2.5 h-2.5 rounded-full bg-zinc-800" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-docit-elevated" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-docit-elevated" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-docit-elevated" />
                     </div>
-                    <div className="w-px h-3 bg-zinc-800 mx-2" />
-                    <div className="flex items-center space-x-1.5 px-3 py-1 bg-zinc-900/60 border border-zinc-800 rounded-t-lg border-b-zinc-950 -mb-2.5 text-xs text-zinc-300 font-semibold">
-                      <span className="text-violet-400 font-black text-[9px] uppercase tracking-wider">M↓</span>
+                    <div className="w-px h-3 bg-docit-elevated mx-2" />
+                    <div className="flex items-center space-x-1.5 px-3 py-1 bg-docit-surface/60 border border-docit-border rounded-t-lg border-b-docit-bg-deep -mb-2.5 text-xs text-docit-text-muted font-semibold">
+                      <span className="text-docit-accent-glow font-black text-[9px] uppercase tracking-wider">M↓</span>
                       <span className="font-mono">document.md</span>
                     </div>
                   </div>
                   {/* Word wrap quick toggle */}
                   <button
                     onClick={() => setWordWrap(!wordWrap)}
-                    className={`text-[9px] uppercase font-black tracking-widest px-2 py-0.5 rounded border transition-colors ${wordWrap ? 'text-violet-400 bg-violet-500/10 border-violet-500/30' : 'text-zinc-600 bg-zinc-900 border-zinc-800'}`}
+                    className={`text-[9px] uppercase font-black tracking-widest px-2 py-0.5 rounded border transition-colors ${wordWrap ? 'text-docit-accent-glow bg-docit-accent/10 border-docit-accent' : 'text-docit-text-tertiary bg-docit-surface border-docit-border'}`}
                     title="Toggle Text Wrap"
                   >
                     Wrap: {wordWrap ? 'ON' : 'OFF'}
@@ -627,7 +589,7 @@ function App() {
                 
                 {/* Textarea Editor */}
                 <textarea
-                  className="flex-1 w-full p-6 md:p-8 outline-none resize-none font-mono text-sm leading-relaxed text-zinc-300 bg-zinc-950/85 custom-scrollbar placeholder-zinc-800"
+                  className="flex-1 w-full p-6 md:p-8 outline-none resize-none font-mono text-sm leading-relaxed text-docit-text-muted bg-docit-bg-deep/85 custom-scrollbar placeholder:text-docit-text-tertiary"
                   value={markdown}
                   onChange={(e) => setMarkdown(e.target.value)}
                   placeholder="Type your markdown here..."
@@ -635,13 +597,13 @@ function App() {
                 />
 
                 {/* Editor Footer Status Bar */}
-                <div className="h-8 bg-zinc-950 border-t border-zinc-850 px-4 flex items-center justify-between text-[10px] text-zinc-500 font-mono select-none shrink-0">
+                <div className="h-8 bg-docit-bg-deep border-t border-docit-border px-4 flex items-center justify-between text-[10px] text-docit-text-tertiary font-mono select-none shrink-0">
                   <div className="flex space-x-4">
-                    <span>Lines: <strong className="text-zinc-400">{lineCount}</strong></span>
-                    <span>Words: <strong className="text-zinc-400">{wordCount}</strong></span>
-                    <span>Chars: <strong className="text-zinc-400">{charCount}</strong></span>
+                    <span>Lines: <strong className="text-docit-text-muted">{lineCount}</strong></span>
+                    <span>Words: <strong className="text-docit-text-muted">{wordCount}</strong></span>
+                    <span>Chars: <strong className="text-docit-text-muted">{charCount}</strong></span>
                   </div>
-                  <span className="text-[9px] font-black uppercase text-zinc-600 tracking-wider">Markdown GFM</span>
+                  <span className="text-[9px] font-black uppercase text-docit-text-tertiary tracking-wider">Markdown GFM</span>
                 </div>
               </div>
             </div>
@@ -654,18 +616,18 @@ function App() {
                 print:w-full print:block print:flex-none
               `}
             >
-              <div className="flex-1 min-h-0 flex flex-col bg-zinc-950 md:rounded-2xl border border-zinc-850 shadow-2xl overflow-hidden print:block print:bg-transparent print:rounded-none print:border-none">
+              <div className="flex-1 min-h-0 flex flex-col bg-docit-bg-deep md:rounded-2xl border border-docit-border shadow-2xl overflow-hidden print:block print:bg-transparent print:rounded-none print:border-none">
                 
                 {/* Preview File Tab Header */}
-                <div className="h-11 border-b border-zinc-850 bg-zinc-950 px-4 md:px-5 flex items-center justify-between select-none shrink-0 print:hidden">
+                <div className="h-11 border-b border-docit-border bg-docit-bg-deep px-4 md:px-5 flex items-center justify-between select-none shrink-0 print:hidden">
                   <div className="flex items-center space-x-1.5">
                     <div className="flex space-x-1">
-                      <div className="w-2.5 h-2.5 rounded-full bg-zinc-800" />
-                      <div className="w-2.5 h-2.5 rounded-full bg-zinc-800" />
-                      <div className="w-2.5 h-2.5 rounded-full bg-zinc-800" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-docit-elevated" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-docit-elevated" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-docit-elevated" />
                     </div>
-                    <div className="w-px h-3 bg-zinc-800 mx-2" />
-                    <div className="flex items-center space-x-1.5 px-3 py-1 bg-zinc-900/60 border border-zinc-800 rounded-t-lg border-b-zinc-950 -mb-2.5 text-xs text-zinc-300 font-semibold">
+                    <div className="w-px h-3 bg-docit-elevated mx-2" />
+                    <div className="flex items-center space-x-1.5 px-3 py-1 bg-docit-surface/60 border border-docit-border rounded-t-lg border-b-docit-bg-deep -mb-2.5 text-xs text-docit-text-muted font-semibold">
                       <span className="text-emerald-400 font-black text-[9px] uppercase tracking-wider">PDF</span>
                       <span className="font-mono">export.pdf</span>
                     </div>
@@ -674,12 +636,12 @@ function App() {
                     {/* Header rules toggle */}
                     <button
                       onClick={() => setIgnoreHr(!ignoreHr)}
-                      className={`text-[9px] uppercase font-black tracking-widest px-2 py-0.5 rounded border transition-colors ${!ignoreHr ? 'text-violet-400 bg-violet-500/10 border-violet-500/30' : 'text-zinc-600 bg-zinc-900 border-zinc-800'}`}
+                      className={`text-[9px] uppercase font-black tracking-widest px-2 py-0.5 rounded border transition-colors ${!ignoreHr ? 'text-docit-accent-glow bg-docit-accent/10 border-docit-accent' : 'text-docit-text-tertiary bg-docit-surface border-docit-border'}`}
                       title="Toggle Horizontal Rules"
                     >
                       {ignoreHr ? 'No HR' : 'Show HR'}
                     </button>
-                    <span className="text-[9px] font-black uppercase text-zinc-600 tracking-wider">Live Preview</span>
+                    <span className="text-[9px] font-black uppercase text-docit-text-tertiary tracking-wider">Live Preview</span>
                   </div>
                 </div>
 
@@ -717,15 +679,15 @@ function App() {
               className="md:hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-[140] transition-opacity duration-300"
             />
             {/* Slide up sheet */}
-            <div className="md:hidden fixed inset-x-0 bottom-0 max-h-[80vh] bg-zinc-950 border-t border-zinc-800 rounded-t-3xl z-[150] shadow-2xl flex flex-col transition-transform duration-300">
+            <div className="md:hidden fixed inset-x-0 bottom-0 max-h-[80vh] bg-docit-bg-deep border-t border-docit-border rounded-t-3xl z-[150] shadow-2xl flex flex-col transition-transform duration-300">
               {/* Drag Handle indicator */}
-              <div className="w-12 h-1 bg-zinc-800 rounded-full mx-auto my-3 shrink-0" />
+              <div className="w-12 h-1 bg-docit-elevated rounded-full mx-auto my-3 shrink-0" />
               
-              <div className="px-6 pb-2 flex justify-between items-center border-b border-zinc-900 shrink-0">
-                <span className="text-sm font-extrabold tracking-tight text-white">Document settings</span>
+              <div className="px-6 pb-2 flex justify-between items-center border-b border-docit-border shrink-0">
+                <span className="text-sm font-extrabold tracking-tight text-docit-text">Document settings</span>
                 <button
                   onClick={() => setIsMobileSettingsOpen(false)}
-                  className="text-xs font-bold text-zinc-500 hover:text-zinc-200"
+                  className="text-xs font-bold text-docit-text-tertiary hover:text-docit-text"
                 >
                   Close
                 </button>
@@ -740,13 +702,13 @@ function App() {
         )}
 
         {/* Floating Bottom Navigation - Mobile Screen Mode only */}
-        <div className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center p-1.5 bg-zinc-900/90 backdrop-blur-2xl rounded-2xl shadow-2xl border border-zinc-800/80 print:hidden z-[100] gap-1">
+        <div className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center p-1.5 bg-docit-surface/90 backdrop-blur-2xl rounded-2xl shadow-2xl border border-docit-border/80 print:hidden z-[100] gap-1">
           <button
             onClick={() => {
               setViewMode('editor');
               setIsMobileSettingsOpen(false);
             }}
-            className={`flex items-center space-x-1.5 px-4 py-2.5 rounded-xl transition-all ${viewMode === 'editor' && !isMobileSettingsOpen ? 'bg-violet-600 text-white shadow shadow-violet-500/20' : 'text-zinc-400 hover:bg-zinc-800'}`}
+            className={`flex items-center space-x-1.5 px-4 py-2.5 rounded-xl transition-all ${viewMode === 'editor' && !isMobileSettingsOpen ? 'bg-docit-accent text-docit-text shadow shadow-docit-accent/30' : 'text-docit-text-muted hover:bg-docit-elevated'}`}
           >
             <PencilSquareIcon className="w-4 h-4" />
             <span className="text-xs font-bold uppercase tracking-wider">Write</span>
@@ -756,14 +718,14 @@ function App() {
               setViewMode('preview');
               setIsMobileSettingsOpen(false);
             }}
-            className={`flex items-center space-x-1.5 px-4 py-2.5 rounded-xl transition-all ${viewMode === 'preview' && !isMobileSettingsOpen ? 'bg-violet-600 text-white shadow shadow-violet-500/20' : 'text-zinc-400 hover:bg-zinc-800'}`}
+            className={`flex items-center space-x-1.5 px-4 py-2.5 rounded-xl transition-all ${viewMode === 'preview' && !isMobileSettingsOpen ? 'bg-docit-accent text-docit-text shadow shadow-docit-accent/30' : 'text-docit-text-muted hover:bg-docit-elevated'}`}
           >
             <EyeIcon className="w-4 h-4" />
             <span className="text-xs font-bold uppercase tracking-wider">Read</span>
           </button>
           <button
             onClick={() => setIsMobileSettingsOpen(true)}
-            className={`flex items-center space-x-1.5 px-4 py-2.5 rounded-xl transition-all ${isMobileSettingsOpen ? 'bg-violet-600 text-white shadow shadow-violet-500/20' : 'text-zinc-400 hover:bg-zinc-800'}`}
+            className={`flex items-center space-x-1.5 px-4 py-2.5 rounded-xl transition-all ${isMobileSettingsOpen ? 'bg-docit-accent text-docit-text shadow shadow-docit-accent/30' : 'text-docit-text-muted hover:bg-docit-elevated'}`}
           >
             <AdjustmentsHorizontalIcon className="w-4 h-4" />
             <span className="text-xs font-bold uppercase tracking-wider">Settings</span>
