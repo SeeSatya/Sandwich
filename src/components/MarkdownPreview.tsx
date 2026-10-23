@@ -282,10 +282,14 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
     const source = sourceRef.current;
     const target = targetRef.current;
 
-    const paginate = () => {
-      // Clear target to rebuild pages
-      target.innerHTML = '';
+    // Guard against redundant rebuilds: repagination triggered by the scrollbar
+    // appearing/disappearing (not by a content change) produces the identical
+    // layout signature, so we skip the rebuild entirely. This breaks the
+    // paginate → height-change → scrollbar-toggle → resize → repaginate loop
+    // that made the preview "dance".
+    let lastSignature: string | null = null;
 
+    const paginate = () => {
       // Constants for A4 @ 96 DPI
       const PPI = 96;
       const MM_TO_PX = PPI / 25.4;
@@ -466,16 +470,23 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             if (measurement && measurement.lines.length > 1 && elementHeight > 0) {
               const { lines, lineHeight } = measurement;
               let prevOffset = 0;
-              let remaining = true;
-              while (remaining) {
+              let finished = false;
+              let bailOut = false; // set when line-splitting can't proceed safely
+              while (!finished) {
                 const avail = MAX_CONTENT_HEIGHT - ((layout.top + prevOffset) - currentPageStartY);
                 const capacity = Math.floor((avail + 0.5) / lineHeight) * lineHeight;
                 // First line of the next chunk (all offsets are element-relative)
                 const nextIdx = lines.findIndex(o => o >= prevOffset - 0.5);
-                if (nextIdx === -1) { remaining = false; break; }
+                if (nextIdx === -1) { break; }
                 const nextOffset = lines[nextIdx];
                 if (capacity < nextOffset - prevOffset + lineHeight) {
-                  // Even one more line won't fit — start a fresh page
+                  // Even one more line won't fit — start a fresh page. Guard:
+                  // if the page is already empty, even one line can't fit, so
+                  // line-splitting is impossible — fall back to atomic.
+                  if (currentPageItems.length === 0 && capacity < lineHeight) {
+                    bailOut = true;
+                    break;
+                  }
                   createNewPage(layout.top + prevOffset);
                   continue;
                 }
@@ -492,9 +503,12 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                   marginBottom: layout.element.style.marginBottom
                 });
                 prevOffset += chunkHeight;
-                if (isLast) { remaining = false; } else { createNewPage(layout.top + prevOffset); }
+                if (isLast) { finished = true; } else { createNewPage(layout.top + prevOffset); }
               }
-              continue;
+              if (!bailOut) {
+                continue;
+              }
+              // bailOut: fall through to atomic treatment below
             }
             // Couldn't measure lines — fall through to atomic behaviour below
           }
@@ -592,6 +606,21 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       }
 
       // Write Phase: Construct HTML in one go
+      // Signature covers the inputs that determine the page layout: each
+      // block's identity + geometry. Excluded: everything caused BY writing
+      // pages (scrollbar, container height). If the signature matches the last
+      // run, the rebuild is redundant → skip.
+      const signature = layouts
+        .map(l => `${l.tagName}:${l.top.toFixed(1)}:${l.bottom.toFixed(1)}:${l.height.toFixed(1)}`)
+        .join('|');
+      if (signature === lastSignature) {
+        return;
+      }
+      lastSignature = signature;
+
+      // Clear target to rebuild pages
+      target.innerHTML = '';
+
       pagesData.forEach(pageData => {
         if (pageData.items.length === 0) return;
 
@@ -599,7 +628,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         page.className = 'page';
         const wrapper = document.createElement('div');
         // Match the hidden measurement container's typography context so the
-        // measured height and the rendered height stay in sync.
+        // measured heights and the rendered heights stay in sync.
         wrapper.className = 'page-content';
         wrapper.style.height = '100%';
         wrapper.style.position = 'relative';
@@ -1004,7 +1033,11 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
              height: 297mm !important;
            }
            .page:last-child {
-             page-break-after: avoid !important;
+             /* !important is required: the plain .page rule above declares
+                page-break-after: always !important, which would otherwise
+                force a trailing blank sheet after the last page. */
+             page-break-after: auto !important;
+             break-after: auto !important;
            }
            .page-number {
              display: none !important;
