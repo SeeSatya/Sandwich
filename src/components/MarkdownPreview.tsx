@@ -468,30 +468,36 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             const measurement = measureLines(layout.element);
             const elementHeight = layout.element.getBoundingClientRect().height;
             if (measurement && measurement.lines.length > 1 && elementHeight > 0) {
-              const { lines, lineHeight } = measurement;
+              const { lines } = measurement;
+              // The true bottom of line i is the start of line i+1 (the last
+              // line's bottom is the element height). Cutting at a measured
+              // line boundary — never a computed multiple of line-height —
+              // guarantees no line is ever sliced, and any line that doesn't
+              // fully fit moves entirely to the next page.
               let prevOffset = 0;
               let finished = false;
               let bailOut = false; // set when line-splitting can't proceed safely
               while (!finished) {
                 const avail = MAX_CONTENT_HEIGHT - ((layout.top + prevOffset) - currentPageStartY);
-                const capacity = Math.floor((avail + 0.5) / lineHeight) * lineHeight;
-                // First line of the next chunk (all offsets are element-relative)
-                const nextIdx = lines.findIndex(o => o >= prevOffset - 0.5);
-                if (nextIdx === -1) { break; }
-                const nextOffset = lines[nextIdx];
-                if (capacity < nextOffset - prevOffset + lineHeight) {
-                  // Even one more line won't fit — start a fresh page. Guard:
-                  // if the page is already empty, even one line can't fit, so
-                  // line-splitting is impossible — fall back to atomic.
-                  if (currentPageItems.length === 0 && capacity < lineHeight) {
-                    bailOut = true;
-                    break;
-                  }
+                // Index of the first line at or below prevOffset
+                const startIdx = lines.findIndex(o => o >= prevOffset - 0.5);
+                if (startIdx === -1) { break; }
+                // Walk to the last line whose bottom fits in the available space
+                let lastFit = startIdx - 1;
+                for (let k = startIdx; k < lines.length; k++) {
+                  const bottom = (k + 1 < lines.length) ? lines[k + 1] : elementHeight;
+                  if (bottom - prevOffset <= avail + 0.5) lastFit = k; else break;
+                }
+                if (lastFit < startIdx) {
+                  // Not even one line fits on this page → fresh page. Guard:
+                  // if the page is already empty, splitting is impossible → atomic.
+                  if (currentPageItems.length === 0) { bailOut = true; break; }
                   createNewPage(layout.top + prevOffset);
                   continue;
                 }
-                const chunkHeight = Math.min(capacity, elementHeight - prevOffset);
-                const isLast = prevOffset + chunkHeight >= elementHeight - lineHeight * 0.5;
+                const chunkBottom = (lastFit + 1 < lines.length) ? lines[lastFit + 1] : elementHeight;
+                const chunkHeight = chunkBottom - prevOffset;
+                const isLast = lastFit === lines.length - 1;
                 currentPageItems.push({
                   type: 'split-chunk',
                   element: layout.element,
@@ -502,7 +508,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                   marginTop: layout.element.style.marginTop,
                   marginBottom: layout.element.style.marginBottom
                 });
-                prevOffset += chunkHeight;
+                prevOffset = chunkBottom;
                 if (isLast) { finished = true; } else { createNewPage(layout.top + prevOffset); }
               }
               if (!bailOut) {
