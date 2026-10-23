@@ -371,6 +371,10 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             return {
               element: liHtml,
               top: liAbsTop,
+              // Content bottom (no margin) used for fit checks — a li's
+              // trailing margin should not evict it from space where a
+              // plain text line of the same height would fit.
+              contentBottom: liAbsTop + liRect.height,
               bottom: liAbsTop + liRect.height + liMarginTop + liMarginBottom,
               height: liRect.height + liMarginTop + liMarginBottom
             };
@@ -461,7 +465,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             lineStream.push({
               block: layout, kind: 'list-item',
               offsetTop: 0, offsetBottom: item.height,
-              absTop: item.top, absBottom: item.bottom,
+              absTop: item.top, absBottom: item.contentBottom,
               listIndex: li, liElement: item.element
             });
           }
@@ -560,11 +564,20 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         // ---- atomic block ----
         if (first.kind === 'full') {
           const groupH = first.absBottom - first.absTop;
-          // Orphan protection: a heading needs room for itself + a following
-          // line, but 120px was so generous it left large gaps → use ~1 line.
-          if (first.block.isHeader && avail < 56) {
-            createNewPage(first.absTop);
-            continue;
+          // Keep-with-next: a heading may not stand alone at the bottom of a
+          // page — it must have at least one line of what follows on the same
+          // page, otherwise the heading moves to the next page too.
+          if (first.block.isHeader && currentPageItems.length > 0) {
+            const next = lineStream[lineIdx + 1];
+            if (next) {
+              const headerBottom = first.absTop + (first.offsetBottom - first.offsetTop);
+              const headerFits = (headerBottom - currentPageStartY) <= MAX_CONTENT_HEIGHT + 0.5;
+              const nextLineFits = (next.absBottom - currentPageStartY) <= MAX_CONTENT_HEIGHT + 0.5;
+              if (headerFits && !nextLineFits) {
+                createNewPage(first.absTop);
+                continue;
+              }
+            }
           }
           if (groupH <= avail + 0.5) {
             if (first.block.isDiagram || first.block.isCodeBlock) {
