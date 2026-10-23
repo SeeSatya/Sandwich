@@ -6,6 +6,7 @@ import MarkdownPreview from './components/MarkdownPreview';
 import { AppTheme, DEFAULT_THEME, THEME_PRESETS } from './types';
 import {
   DocumentTextIcon,
+  DocumentArrowDownIcon,
   PrinterIcon,
   SparklesIcon,
   TrashIcon,
@@ -578,62 +579,58 @@ function App() {
       {/* Main Container styled with Railway Dark Mode */}
       <div className="h-screen overflow-hidden bg-zinc-950 text-zinc-100 font-sans flex flex-col print:h-auto print:min-h-screen print:overflow-visible print:bg-transparent selection:bg-violet-500/30 selection:text-violet-300">
         
-        {/* Railway Sleek Header */}
-        <header className="h-16 shrink-0 flex items-center justify-between px-4 md:px-6 bg-[#09090b] border-b border-zinc-800 print:hidden z-50">
-          <div className="flex items-center space-x-3 md:space-x-4">
+        {/* DocIT compact header */}
+        <header className="h-14 shrink-0 flex items-center justify-between px-3 md:px-5 bg-docit-bg border-b border-docit-border print:hidden z-50">
+          <div className="flex items-center gap-2.5">
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="hidden md:flex p-1.5 hover:bg-zinc-900 rounded-lg text-zinc-400 hover:text-zinc-200 border border-zinc-800 hover:border-zinc-700 transition-all active:scale-95"
-              title="Toggle Config Sidebar"
+              className="hidden md:flex p-1.5 rounded-full text-docit-text-muted hover:text-docit-text hover:bg-docit-elevated border border-docit-border hover:border-docit-border-light transition-all active:scale-95"
+              title="Toggle settings sidebar"
             >
               <AdjustmentsHorizontalIcon className="w-5 h-5" />
             </button>
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-tr from-violet-600 to-indigo-600 shadow-lg shadow-violet-500/20">
-                <DocumentTextIcon className="w-5 h-5 text-white" />
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gradient-to-tr from-docit-accent-active to-docit-accent-glow shadow-[0_4px_14px_rgba(106,44,107,0.45)]">
+                <DocumentTextIcon className="w-5 h-5 text-docit-text" />
               </div>
-              <div>
-                <span className="text-base font-extrabold tracking-tight text-white block leading-none">MarkMind</span>
-                <span className="text-[8px] uppercase tracking-widest text-zinc-500 font-black leading-none mt-0.5 block">Railway Engine</span>
-              </div>
+              <span className="text-base font-extrabold tracking-tight text-docit-text leading-none">DocIT</span>
             </div>
-            <div className="flex items-center space-x-1.5 bg-zinc-900/50 px-2 py-0.5 rounded border border-zinc-800">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 pulse-green"></span>
-              <span className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold">READY</span>
-            </div>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" title="Renderer ready" />
           </div>
 
-          {/* Actions Menu */}
-          <div className="flex items-center space-x-2">
+          {/* Actions — icon-only, tooltips carry the labels */}
+          <div className="flex items-center gap-1.5">
             <button
               onClick={handleAITheme}
               disabled={isGeneratingTheme}
-              className="flex items-center space-x-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-violet-600 text-white hover:bg-violet-500 border border-violet-500 shadow-md shadow-violet-500/10 active:scale-95 disabled:opacity-50 transition-all select-none"
+              className="p-2.5 rounded-full bg-docit-accent text-docit-text hover:bg-docit-accent-hover shadow-[0_4px_14px_rgba(106,44,107,0.4)] active:scale-95 disabled:opacity-50 transition-all select-none"
+              title={isGeneratingTheme ? 'Generating theme…' : 'AI Style (Gemini)'}
             >
-              {isGeneratingTheme ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> : <SparklesIcon className="w-3.5 h-3.5" />}
-              <span>{isGeneratingTheme ? 'Thinking...' : 'AI Style'}</span>
+              {isGeneratingTheme ? <ArrowPathIcon className="w-5 h-5 animate-spin" /> : <SparklesIcon className="w-5 h-5" />}
             </button>
             <button
               onClick={handlePrint}
-              className="flex items-center space-x-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-zinc-900 border border-zinc-800 text-zinc-200 hover:bg-zinc-800 hover:border-zinc-700 active:scale-95 transition-all select-none"
+              className="p-2.5 rounded-full bg-docit-surface border border-docit-border text-docit-text-muted hover:text-docit-text hover:bg-docit-elevated hover:border-docit-border-light active:scale-95 transition-all select-none"
+              title="Export as PDF (print)"
             >
-              <PrinterIcon className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Export PDF</span>
+              <PrinterIcon className="w-5 h-5" />
             </button>
             <button
               onClick={handleExportDoc}
               disabled={!!docxProgress}
-              className="flex items-center space-x-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-zinc-900 border border-zinc-800 text-zinc-200 hover:bg-zinc-800 hover:border-zinc-700 active:scale-95 transition-all select-none disabled:opacity-50 disabled:cursor-not-allowed"
+              className="p-2.5 rounded-full bg-docit-surface border border-docit-border text-docit-text-muted hover:text-docit-text hover:bg-docit-elevated hover:border-docit-border-light active:scale-95 transition-all select-none disabled:opacity-50 disabled:cursor-not-allowed"
+              title={docxProgress ? 'Exporting DOCX…' : 'Export as Word (.docx)'}
             >
-              <DocumentTextIcon className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{docxProgress ? 'Exporting…' : 'Export DOCX'}</span>
+              {docxProgress
+                ? <ArrowPathIcon className="w-5 h-5 animate-spin" />
+                : <DocumentArrowDownIcon className="w-5 h-5" />}
             </button>
             <button
               onClick={handleReset}
-              className="p-2 rounded-lg bg-zinc-900 hover:bg-red-500/10 text-zinc-500 hover:text-red-400 border border-zinc-800 hover:border-red-900/50 transition-all active:scale-95"
-              title="Reset Project"
+              className="p-2.5 rounded-full bg-docit-surface border border-docit-border text-docit-text-tertiary hover:text-red-400 hover:border-red-900/60 hover:bg-red-500/10 transition-all active:scale-95"
+              title="Reset document to default"
             >
-              <TrashIcon className="w-4 h-4" />
+              <TrashIcon className="w-5 h-5" />
             </button>
           </div>
         </header>
