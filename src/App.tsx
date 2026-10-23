@@ -23,7 +23,12 @@ import {
   SunIcon,
   MoonIcon,
   Square2StackIcon,
-  PaintBrushIcon
+  PaintBrushIcon,
+  ArrowsPointingInIcon,
+  Bars3BottomLeftIcon,
+  TagIcon,
+  ChevronDownIcon,
+  CommandLineIcon
 } from '@heroicons/react/24/outline';
 
 const INITIAL_MARKDOWN = `# Project Documentation
@@ -214,6 +219,8 @@ function App() {
   // Sidebar toggles for Desktop & Mobile settings drawer
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobileSettingsOpen, setIsMobileSettingsOpen] = useState(false);
+  // Accordion for rarely-used code & AI settings
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
 
   // Stats calculation
   const wordCount = markdown.trim().split(/\s+/).filter(Boolean).length;
@@ -267,239 +274,167 @@ function App() {
     }
   };
 
-  // Helper render to share settings between sidebar and mobile drawer
-  const renderSettingsControls = () => (
-    <div className="space-y-6 text-zinc-300">
-      {/* Document Styling Section */}
-      <div className="space-y-4">
-        <h3 className="text-[10px] font-black uppercase tracking-wider text-zinc-500 border-b border-zinc-800 pb-2 flex items-center gap-2">
-          <SwatchIcon className="w-4 h-4 text-violet-400" /> Document Theme
-        </h3>
-        
-        {/* Theme Preset */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-bold text-zinc-400">Preset Theme</label>
-          <div className="relative">
-            <select
-              value={theme.name}
-              onChange={(e) => {
-                const selected = THEME_PRESETS.find(t => t.name === e.target.value);
-                if (selected) setTheme(selected);
-              }}
-              className="w-full bg-zinc-900 text-zinc-200 text-sm font-semibold rounded-lg border border-zinc-800 py-2.5 px-3 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all cursor-pointer appearance-none animate-none"
-            >
-              {THEME_PRESETS.map(t => (
-                <option key={t.name} value={t.name} className="bg-zinc-950 text-zinc-200">{t.name}</option>
-              ))}
-            </select>
-            <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-zinc-500 text-xs">▼</div>
-          </div>
-        </div>
+  // ---- DocIT 5x4 settings grid ----
+  // Rule: max 5 rows; each row carries at most 4 columns. Rarely-used options
+  // live in the accordion, which itself obeys the same 5x4 limit.
+  const gridSelect =
+    'w-full bg-docit-surface text-docit-text text-xs font-semibold rounded-xl border border-docit-border py-2 px-2.5 ' +
+    'focus:outline-none focus:border-docit-accent-glow transition-all cursor-pointer appearance-none truncate';
 
-        {/* Custom Color Selector (Visible only for Material Expressive) */}
+  const TileButton = ({ active, onClick, icon, tip }: { active: boolean; onClick: () => void; icon: React.ReactNode; tip: string }) => (
+    <button
+      onClick={onClick}
+      title={tip}
+      className={`flex items-center justify-center h-10 rounded-xl border transition-all active:scale-95 ${
+        active
+          ? 'bg-docit-accent-subtle border-docit-accent text-docit-text shadow-[0_0_10px_rgba(106,44,107,0.35)]'
+          : 'bg-docit-surface border-docit-border text-docit-text-muted hover:text-docit-text hover:border-docit-border-light'
+      }`}
+    >
+      {icon}
+    </button>
+  );
+
+  const renderSettingsControls = () => (
+    <div className="space-y-2 text-docit-text">
+      {/* Row 1: theme preset (3 or 4 cols) + accent color (1 col, Material Expressive only) */}
+      <div className="grid grid-cols-4 gap-2">
+        <div className={`${theme.name === 'Material Expressive' ? 'col-span-3' : 'col-span-4'} relative`} title="Document theme">
+          <SwatchIcon className="w-3.5 h-3.5 text-docit-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <select
+            value={theme.name}
+            onChange={(e) => {
+              const selected = THEME_PRESETS.find(t => t.name === e.target.value);
+              if (selected) setTheme(selected);
+            }}
+            className={gridSelect + ' pl-7'}
+          >
+            {THEME_PRESETS.map(t => (
+              <option key={t.name} value={t.name}>{t.name}</option>
+            ))}
+          </select>
+        </div>
         {theme.name === 'Material Expressive' && (
-          <div className="space-y-1.5 bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/80">
-            <label className="text-xs font-bold text-zinc-400 block mb-1">Accent Brand Color</label>
-            <div className="flex items-center gap-3">
-              <input
-                type="color"
-                value={customColor}
-                onChange={(e) => setCustomColor(e.target.value)}
-                className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-none p-0 outline-none"
-              />
-              <span className="text-xs font-mono text-zinc-300">{customColor.toUpperCase()}</span>
-            </div>
+          <div className="col-span-1 relative" title="Accent color">
+            <input
+              type="color"
+              value={customColor}
+              onChange={(e) => { setCustomColor(e.target.value); }}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            />
+            <div
+              className="w-full h-10 rounded-xl border border-docit-border pointer-events-none"
+              style={{ backgroundColor: customColor }}
+            />
           </div>
         )}
+      </div>
 
-        {/* Font Size */}
-        <div className="space-y-1.5">
-          <div className="flex justify-between text-xs font-bold text-zinc-400">
-            <label>Base Font Size</label>
-            <span className="font-mono text-violet-400">{fontSize}px</span>
-          </div>
+      {/* Row 2: font size slider (2 cols) + page margins (2 cols) */}
+      <div className="grid grid-cols-4 gap-2">
+        <div className="col-span-2 bg-docit-surface border border-docit-border rounded-xl px-2.5 flex items-center gap-2 h-10" title="Base font size">
+          <span className="text-[10px] font-black text-docit-text-muted">A</span>
           <input
             type="range" min="10" max="24" step="1"
             value={fontSize}
             onChange={e => setFontSize(parseInt(e.target.value))}
-            className="w-full accent-violet-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+            className="flex-1 min-w-0 accent-docit-accent-glow h-1 bg-docit-border rounded-lg appearance-none cursor-pointer"
           />
+          <span className="text-[10px] font-mono text-docit-text-muted">{fontSize}px</span>
         </div>
-
-        {/* Padding Size */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-bold text-zinc-400">Page Margins (Padding)</label>
-          <div className="relative">
-            <select
-              value={paddingSize}
-              onChange={(e) => setPaddingSize(e.target.value as PaddingSize)}
-              className="w-full bg-zinc-900 text-zinc-200 text-sm font-semibold rounded-lg border border-zinc-800 py-2.5 px-3 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all cursor-pointer appearance-none"
-            >
-              <option value="small" className="bg-zinc-950">Small (12.7mm)</option>
-              <option value="medium" className="bg-zinc-950">Medium (25.4mm)</option>
-              <option value="large" className="bg-zinc-950">Large (35.0mm)</option>
-            </select>
-            <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-zinc-500 text-xs">▼</div>
-          </div>
+        <div className="col-span-2 relative" title="Page margins">
+          <ArrowsPointingInIcon className="w-3.5 h-3.5 text-docit-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <select
+            value={paddingSize}
+            onChange={(e) => setPaddingSize(e.target.value as PaddingSize)}
+            className={gridSelect + ' pl-7 h-10'}
+          >
+            <option value="small">S · 12.7mm</option>
+            <option value="medium">M · 25.4mm</option>
+            <option value="large">L · 35mm</option>
+          </select>
         </div>
       </div>
 
-      {/* Code Blocks Styling */}
-      <div className="space-y-4 pt-2">
-        <h3 className="text-[10px] font-black uppercase tracking-wider text-zinc-500 border-b border-zinc-800 pb-2 flex items-center gap-2">
-          <CodeBracketIcon className="w-4 h-4 text-violet-400" /> Code Block Styling
-        </h3>
-
-        {/* Font */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-bold text-zinc-400">Monospace Font</label>
-          <div className="relative">
-            <select
-              value={codeFont}
-              onChange={(e) => setCodeFont(e.target.value)}
-              className="w-full bg-zinc-900 text-zinc-200 text-sm font-semibold rounded-lg border border-zinc-800 py-2.5 px-3 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all cursor-pointer appearance-none"
-            >
-              <option value="JetBrains Mono, monospace" className="bg-zinc-950">JetBrains Mono</option>
-              <option value="Space Mono, monospace" className="bg-zinc-950">Space Mono</option>
-              <option value="Fira Code, monospace" className="bg-zinc-950">Fira Code</option>
-              <option value="DM Mono, monospace" className="bg-zinc-950">DM Mono</option>
-            </select>
-            <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-zinc-500 text-xs">▼</div>
-          </div>
-        </div>
-
-        {/* Highlight Theme */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-bold text-zinc-400">Syntax Highlight Theme</label>
-          <div className="relative">
-            <select
-              value={highlightStyle}
-              onChange={(e) => setHighlightStyle(e.target.value)}
-              className="w-full bg-zinc-900 text-zinc-200 text-sm font-semibold rounded-lg border border-zinc-800 py-2.5 px-3 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all cursor-pointer appearance-none"
-            >
-              <option value="default" className="bg-zinc-950">Default (System-Matched)</option>
-              <option value="dracula" className="bg-zinc-950">Dracula</option>
-              <option value="atomDark" className="bg-zinc-950">Atom Dark</option>
-              <option value="vscDarkPlus" className="bg-zinc-950">VS Code Dark</option>
-              <option value="oneDark" className="bg-zinc-950">One Dark</option>
-              <option value="github" className="bg-zinc-950">GitHub Light</option>
-              <option value="vs" className="bg-zinc-950">VS Light</option>
-            </select>
-            <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-zinc-500 text-xs">▼</div>
-          </div>
-        </div>
-
-        {/* Toggles */}
-        <div className="space-y-3 pt-1">
-          {/* Code Window Header */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-bold text-zinc-300">
-              <WindowIcon className="w-4 h-4 text-zinc-500" />
-              <span>IDE Style Window Header</span>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox" checked={codeWindowStyle}
-                onChange={() => setCodeWindowStyle(!codeWindowStyle)}
-                className="sr-only switch-checkbox"
-              />
-              <div className="w-9 h-5 bg-zinc-800 rounded-full switch-label transition-colors duration-200 p-0.5 border border-zinc-700">
-                <div className={`w-3.5 h-3.5 bg-zinc-50 rounded-full transition-transform duration-200 switch-dot ${codeWindowStyle ? 'translate-x-4' : ''}`} />
-              </div>
-            </label>
-          </div>
-
-          {/* Code line numbers */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-bold text-zinc-300">
-              <HashtagIcon className="w-4 h-4 text-zinc-500" />
-              <span>Show Line Numbers</span>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox" checked={showLineNumbers}
-                onChange={() => setShowLineNumbers(!showLineNumbers)}
-                className="sr-only switch-checkbox"
-              />
-              <div className="w-9 h-5 bg-zinc-800 rounded-full switch-label transition-colors duration-200 p-0.5 border border-zinc-700">
-                <div className={`w-3.5 h-3.5 bg-zinc-50 rounded-full transition-transform duration-200 switch-dot ${showLineNumbers ? 'translate-x-4' : ''}`} />
-              </div>
-            </label>
-          </div>
-
-          {/* Code box theme */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-bold text-zinc-300">
-              {codeBlockDark ? <MoonIcon className="w-4 h-4 text-violet-400" /> : <SunIcon className="w-4 h-4 text-zinc-500" />}
-              <span>Dark Code Container</span>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox" checked={codeBlockDark}
-                onChange={() => setCodeBlockDark(!codeBlockDark)}
-                className="sr-only switch-checkbox"
-              />
-              <div className="w-9 h-5 bg-zinc-800 rounded-full switch-label transition-colors duration-200 p-0.5 border border-zinc-700">
-                <div className={`w-3.5 h-3.5 bg-zinc-50 rounded-full transition-transform duration-200 switch-dot ${codeBlockDark ? 'translate-x-4' : ''}`} />
-              </div>
-            </label>
-          </div>
-
-          {/* Code Border */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-bold text-zinc-300">
-              <Square2StackIcon className="w-4 h-4 text-zinc-500" />
-              <span>Container Outline Border</span>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox" checked={codeBlockBorder}
-                onChange={() => setCodeBlockBorder(!codeBlockBorder)}
-                className="sr-only switch-checkbox"
-              />
-              <div className="w-9 h-5 bg-zinc-800 rounded-full switch-label transition-colors duration-200 p-0.5 border border-zinc-700">
-                <div className={`w-3.5 h-3.5 bg-zinc-50 rounded-full transition-transform duration-200 switch-dot ${codeBlockBorder ? 'translate-x-4' : ''}`} />
-              </div>
-            </label>
-          </div>
-        </div>
+      {/* Row 3: four icon toggles */}
+      <div className="grid grid-cols-4 gap-2">
+        <TileButton active={showPageNumbers} onClick={() => setShowPageNumbers(!showPageNumbers)} tip="Show page numbers" icon={<HashtagIcon className="w-4 h-4" />} />
+        <TileButton active={!ignoreHr} onClick={() => setIgnoreHr(!ignoreHr)} tip="Horizontal rules" icon={<MinusIcon className="w-4 h-4" />} />
+        <TileButton active={wordWrap} onClick={() => setWordWrap(!wordWrap)} tip="Word wrap in editor" icon={<Bars3BottomLeftIcon className="w-4 h-4" />} />
+        <TileButton active={false} onClick={handleReset} tip="Reset document" icon={<TrashIcon className="w-4 h-4" />} />
       </div>
 
-      {/* Metadata & PDF Headers */}
-      <div className="space-y-4 pt-2">
-        <h3 className="text-[10px] font-black uppercase tracking-wider text-zinc-500 border-b border-zinc-800 pb-2 flex items-center gap-2">
-          <ArrowsPointingOutIcon className="w-4 h-4 text-violet-400" /> Page & PDF Headers
-        </h3>
-
-        {/* Header Text */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-bold text-zinc-400">Custom Document Header</label>
-          <input
-            type="text"
-            value={headerText}
-            onChange={(e) => setHeaderText(e.target.value)}
-            placeholder="e.g. Confidential, Draft v1"
-            className="w-full bg-zinc-900 text-zinc-200 text-sm font-semibold rounded-lg border border-zinc-800 py-2 px-3 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all placeholder-zinc-650"
-          />
-        </div>
-
-        {/* Page Numbering */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs font-bold text-zinc-300">
-            <span>Show Page Numbers</span>
-          </div>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox" checked={showPageNumbers}
-              onChange={() => setShowPageNumbers(!showPageNumbers)}
-              className="sr-only switch-checkbox"
-            />
-            <div className="w-9 h-5 bg-zinc-800 rounded-full switch-label transition-colors duration-200 p-0.5 border border-zinc-700">
-              <div className={`w-3.5 h-3.5 bg-zinc-50 rounded-full transition-transform duration-200 switch-dot ${showPageNumbers ? 'translate-x-4' : ''}`} />
-            </div>
-          </label>
-        </div>
+      {/* Row 4: running header input (4 cols) */}
+      <div className="relative" title="Running header text">
+        <TagIcon className="w-3.5 h-3.5 text-docit-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+        <input
+          type="text"
+          value={headerText}
+          onChange={(e) => setHeaderText(e.target.value)}
+          placeholder="Running header (e.g. Confidential)"
+          className="w-full bg-docit-surface text-docit-text text-xs font-semibold rounded-xl border border-docit-border py-2.5 pl-7 pr-2.5 focus:outline-none focus:border-docit-accent-glow transition-all placeholder:text-docit-text-tertiary"
+        />
       </div>
+
+      {/* Row 5: accordion for rare options */}
+      <button
+        onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
+        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-docit-surface border border-docit-border text-docit-text-muted hover:text-docit-text hover:border-docit-border-light transition-all"
+        title="Code & AI settings"
+      >
+        <span className="flex items-center gap-2 text-xs font-bold">
+          <CodeBracketIcon className="w-4 h-4" /> Code & AI settings
+        </span>
+        <ChevronDownIcon className={`w-4 h-4 transition-transform ${isAdvancedOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isAdvancedOpen && (
+        <div className="space-y-2 pt-1">
+          {/* Acc-Row 1: code font (2) + syntax theme (2) */}
+          <div className="grid grid-cols-4 gap-2">
+            <div className="col-span-2 relative" title="Code font">
+              <CommandLineIcon className="w-3.5 h-3.5 text-docit-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <select value={codeFont} onChange={(e) => setCodeFont(e.target.value)} className={gridSelect + ' pl-7 h-10'}>
+                <option value="JetBrains Mono, monospace">JetBrains Mono</option>
+                <option value="Space Mono, monospace">Space Mono</option>
+                <option value="Fira Code, monospace">Fira Code</option>
+                <option value="DM Mono, monospace">DM Mono</option>
+              </select>
+            </div>
+            <div className="col-span-2 relative" title="Syntax highlight theme">
+              <PaintBrushIcon className="w-3.5 h-3.5 text-docit-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <select value={highlightStyle} onChange={(e) => setHighlightStyle(e.target.value)} className={gridSelect + ' pl-7 h-10'}>
+                <option value="default">System default</option>
+                <option value="dracula">Dracula</option>
+                <option value="atomDark">Atom Dark</option>
+                <option value="vscDarkPlus">VS Code Dark</option>
+                <option value="oneDark">One Dark</option>
+                <option value="github">GitHub Light</option>
+                <option value="vs">VS Light</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Acc-Row 2: four code-box toggles */}
+          <div className="grid grid-cols-4 gap-2">
+            <TileButton active={codeWindowStyle} onClick={() => setCodeWindowStyle(!codeWindowStyle)} tip="IDE window header on code blocks" icon={<WindowIcon className="w-4 h-4" />} />
+            <TileButton active={showLineNumbers} onClick={() => setShowLineNumbers(!showLineNumbers)} tip="Code line numbers" icon={<HashtagIcon className="w-4 h-4" />} />
+            <TileButton active={codeBlockDark} onClick={() => setCodeBlockDark(!codeBlockDark)} tip="Dark code container" icon={codeBlockDark ? <MoonIcon className="w-4 h-4" /> : <SunIcon className="w-4 h-4" />} />
+            <TileButton active={codeBlockBorder} onClick={() => setCodeBlockBorder(!codeBlockBorder)} tip="Code container border" icon={<Square2StackIcon className="w-4 h-4" />} />
+          </div>
+
+          {/* Acc-Row 3: AI style (4 cols) */}
+          <button
+            onClick={handleAITheme}
+            disabled={isGeneratingTheme}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-docit-accent text-docit-text text-xs font-bold hover:bg-docit-accent-hover shadow-[0_4px_14px_rgba(106,44,107,0.4)] active:scale-[0.98] disabled:opacity-50 transition-all"
+            title="Generate a theme from your document with Gemini"
+          >
+            {isGeneratingTheme ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : <SparklesIcon className="w-4 h-4" />}
+            {isGeneratingTheme ? 'Generating…' : 'AI Style with Gemini'}
+          </button>
+        </div>
+      )}
     </div>
   );
 
