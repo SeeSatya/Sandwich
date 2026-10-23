@@ -428,215 +428,160 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         pagesData.push({ pageNum: currentPageNum, items: currentPageItems });
       };
 
-      for (let i = 0; i < layouts.length; i++) {
-        const layout = layouts[i];
-        
-        // Skip elements with 0 height (hidden or empty)
+      // ---- Line-stream pagination ----
+      // Build a flat stream of lines: each line object carries a reference to
+      // its source block. Headers / code / diagrams become ONE multi-line
+      // "group" (unbreakable); lists and text blocks contribute one entry per
+      // rendered line (Range-measured). Pages are then packed greedily at
+      // line boundaries — no paragraph is ever left whole when only part of
+      // it fits, which is what produced the page-bottom gaps.
+
+      interface LineEntry {
+        block: any;           // layout record
+        offsetTop: number;    // px from the block's own top to this line's top
+        offsetBottom: number; // px from the block's top to this line's bottom
+        absTop: number;       // absolute top in the source document
+        absBottom: number;
+        atomic: boolean;      // true => this entry is an unbreakable group
+        listIndex?: number;   // for list items
+      }
+
+      const lineStream: LineEntry[] = [];
+
+      for (const layout of layouts) {
         if (layout.height === 0) continue;
+        const contentH = layout.element.getBoundingClientRect().height;
 
-        // Check if element starts after current page height or close to bottom
-        const spaceLeft = MAX_CONTENT_HEIGHT - (layout.top - currentPageStartY);
-
-        // Orphan protection for headers: push to next page earlier so the heading
-        // itself does not get clipped by the page bottom.
-        if (layout.isHeader && spaceLeft < 120) {
-          createNewPage(layout.top);
-        } else if ((layout.isCodeBlock || layout.isDiagram) && spaceLeft < layout.height + 10) {
-          // Visual block doesn't fit in the remaining space. Instead of pushing
-          // it whole to the next page (which leaves a large blank gap), shrink it
-          // to fit when it would occupy a reasonable share of the space left.
-          // The block keeps its aspect ratio; the wrapper reserves the scaled
-          // height so the page box stays correct.
-          const fitRatio = spaceLeft / layout.height;
-          if (fitRatio >= 0.55 && layout.height > 0 && currentPageItems.length > 0) {
-            currentPageItems.push({
-              type: 'full',
-              element: layout.element,
-              fitScale: fitRatio
+        if (layout.isList && layout.listItems.length > 0) {
+          for (let li = 0; li < layout.listItems.length; li++) {
+            const item = layout.listItems[li];
+            lineStream.push({
+              block: layout, offsetTop: 0, offsetBottom: item.height,
+              absTop: item.top, absBottom: item.bottom,
+              atomic: true, listIndex: li
             });
-            continue;
           }
-          // Otherwise push it whole to the next page.
-          if (currentPageItems.length > 0) {
-            createNewPage(layout.top);
-          }
-        } else if (layout.top - currentPageStartY > MAX_CONTENT_HEIGHT - 10) {
-          createNewPage(layout.top);
-        }
-
-        const elementBottom = layout.bottom;
-
-        // Text blocks (paragraphs, blockquotes, …) can split at LINE boundaries.
-        const isTextBlock = !layout.isHeader && !layout.isDiagram &&
-          !layout.isCodeBlock && !layout.isList &&
-          (layout.tagName === 'P' || layout.tagName === 'BLOCKQUOTE' ||
-           layout.tagName === 'DIV' || layout.tagName === 'SECTION');
-
-        // 1. Fits completely
-        let fits = elementBottom - currentPageStartY <= MAX_CONTENT_HEIGHT;
-        let textLines: number[] | null = null;
-        let textHeight = 0;
-        if (isTextBlock) {
-          textHeight = layout.element.getBoundingClientRect().height;
-          if (textHeight > 0) {
-            const m = measureLines(layout.element);
-            if (m) textLines = m.lines;
+        } else {
+          const atomic = layout.isHeader || layout.isDiagram || layout.isCodeBlock ||
+            !(layout.tagName === 'P' || layout.tagName === 'BLOCKQUOTE' ||
+              layout.tagName === 'DIV' || layout.tagName === 'SECTION');
+          const m = measureLines(layout.element);
+          if (atomic || !m || m.lines.length === 0) {
+            lineStream.push({
+              block: layout, offsetTop: 0, offsetBottom: contentH,
+              absTop: layout.top, absBottom: layout.top + contentH,
+              atomic: true
+            });
+          } else {
+            const offs = m.lines;
+            for (let k = 0; k < offs.length; k++) {
+              const oTop = offs[k];
+              const oBottom = (k + 1 < offs.length) ? offs[k + 1] : contentH;
+              lineStream.push({
+                block: layout, offsetTop: oTop, offsetBottom: oBottom,
+                absTop: layout.top + oTop, absBottom: layout.top + oBottom, atomic: false
+              });
+            }
           }
         }
-        // Decide "fits" against the LAST line's real bottom, not the element's
-        // box height + a fixed safety buffer. This stops a paragraph whose last
-        // line would clip (the gap you highlighted) from being placed whole.
-        if (fits && textLines && textLines.length > 0) {
-          const avail = MAX_CONTENT_HEIGHT - (layout.top - currentPageStartY);
-          const lastBottom = textHeight; // last line's bottom == element height
-          if (lastBottom > avail + 0.5) fits = false;
+      }
+
+      // Pack lines into pages
+      let lineIdx = 0;
+      const total = lineStream.length;
+      while (lineIdx < total) {
+        const first = lineStream[lineIdx];
+        // If the current (last) page is empty, adopt this line's absTop as its
+        // start so "space used" is measured from the actual first line.
+        const lastPage = pagesData[pagesData.length - 1];
+        if (currentPageItems.length === 0) {
+          currentPageStartY = first.absTop;
+        }
+        const avail = MAX_CONTENT_HEIGHT - (first.absTop - currentPageStartY);
+
+        // Orphan protection: a header alone near the bottom gets pushed.
+        if (first.block.isHeader && avail < 120) {
+          createNewPage(first.absTop);
+          continue;
         }
 
-        if (fits) {
-          currentPageItems.push({ type: 'full', element: layout.element });
-        }
-        // 2. Doesn't fit, need to handle split
-        else {
-          if (isTextBlock && textLines && textLines.length > 1 && textHeight > 0) {
-              const lines = textLines;
-              const elementHeight = textHeight;
-              // The true bottom of line i is the start of line i+1 (the last
-              // line's bottom is the element height). Cutting at a measured
-              // line boundary — never a computed multiple of line-height —
-              // guarantees no line is ever sliced, and any line that doesn't
-              // fully fit moves entirely to the next page.
-              let prevOffset = 0;
-              let finished = false;
-              let bailOut = false; // set when line-splitting can't proceed safely
-              while (!finished) {
-                const avail = MAX_CONTENT_HEIGHT - ((layout.top + prevOffset) - currentPageStartY);
-                // Index of the first line at or below prevOffset
-                const startIdx = lines.findIndex(o => o >= prevOffset - 0.5);
-                if (startIdx === -1) { break; }
-                // Walk to the last line whose bottom fits in the available space
-                let lastFit = startIdx - 1;
-                for (let k = startIdx; k < lines.length; k++) {
-                  const bottom = (k + 1 < lines.length) ? lines[k + 1] : elementHeight;
-                  if (bottom - prevOffset <= avail + 0.5) lastFit = k; else break;
-                }
-                if (lastFit < startIdx) {
-                  // Not even one line fits on this page → fresh page. Guard:
-                  // if the page is already empty, splitting is impossible → atomic.
-                  if (currentPageItems.length === 0) { bailOut = true; break; }
-                  createNewPage(layout.top + prevOffset);
-                  continue;
-                }
-                const chunkBottom = (lastFit + 1 < lines.length) ? lines[lastFit + 1] : elementHeight;
-                const chunkHeight = chunkBottom - prevOffset;
-                const isLast = lastFit === lines.length - 1;
-                currentPageItems.push({
-                  type: 'split-chunk',
-                  element: layout.element,
-                  chunkHeight,
-                  offset: prevOffset,
-                  isFirst: prevOffset === 0,
-                  isLast,
-                  marginTop: layout.element.style.marginTop,
-                  marginBottom: layout.element.style.marginBottom
-                });
-                prevOffset = chunkBottom;
-                if (isLast) { finished = true; } else { createNewPage(layout.top + prevOffset); }
-              }
-              if (!bailOut) {
+        if (first.atomic) {
+          const groupH = first.absBottom - first.absTop;
+          if (groupH <= avail + 0.5) {
+            if ((first.block.isDiagram || first.block.isCodeBlock) && first.listIndex === undefined) {
+              const fitRatio = avail / groupH;
+              if (fitRatio >= 0.55 && fitRatio < 1 && currentPageItems.length > 0) {
+                currentPageItems.push({ type: 'full', element: first.block.element, fitScale: fitRatio });
+                lineIdx++;
                 continue;
               }
-              // bailOut / unmeasurable: fall through to atomic treatment below
-          }
-
-          if (!layout.isList) {
-            // Atomic block that doesn't fit — push whole to a fresh page.
+            }
+            currentPageItems.push({ type: 'full', element: first.block.element });
+            lineIdx++;
+            continue;
+          } else {
             if (currentPageItems.length > 0) {
-              createNewPage(layout.top);
-            }
-            currentPageItems.push({ type: 'full', element: layout.element });
-          }
-          // Handle Lists
-          else if (layout.isList && layout.listItems.length > 0) {
-            const listItems = layout.listItems;
-            let currentStart = 1;
-            
-            // Find how many fit on the current page
-            const fitItems: HTMLElement[] = [];
-            let firstOverflowIdx = -1;
-            
-            for (let j = 0; j < listItems.length; j++) {
-              const li = listItems[j];
-              if (li.bottom - currentPageStartY <= MAX_CONTENT_HEIGHT) {
-                fitItems.push(li.element);
-              } else {
-                firstOverflowIdx = j;
-                break;
-              }
-            }
-
-            if (fitItems.length > 0) {
-              currentPageItems.push({
-                type: 'list-split',
-                element: layout.element,
-                tagName: layout.tagName,
-                className: layout.className,
-                start: currentStart,
-                items: fitItems
-              });
-              currentStart += fitItems.length;
+              createNewPage(first.absTop);
+              continue;
             } else {
-              // None fit, push the list to the next page
-              if (currentPageItems.length > 0) {
-                createNewPage(layout.top);
-              }
-              firstOverflowIdx = 0;
-            }
-
-            if (firstOverflowIdx !== -1) {
-              let currentListItems = listItems.slice(firstOverflowIdx);
-              while (currentListItems.length > 0) {
-                createNewPage(currentListItems[0].top);
-                
-                const pageFit: HTMLElement[] = [];
-                let nextOverflowIdx = -1;
-                
-                for (let j = 0; j < currentListItems.length; j++) {
-                  const li = currentListItems[j];
-                  if (li.bottom - currentPageStartY <= MAX_CONTENT_HEIGHT) {
-                    pageFit.push(li.element);
-                  } else {
-                    nextOverflowIdx = j;
-                    break;
-                  }
-                }
-
-                if (pageFit.length > 0) {
-                  currentPageItems.push({
-                    type: 'list-split',
-                    element: layout.element,
-                    tagName: layout.tagName,
-                    className: layout.className,
-                    start: currentStart,
-                    items: pageFit
-                  });
-                  currentStart += pageFit.length;
-                } else {
-                  // Even a single item is taller than a page, force it to fit
-                  currentPageItems.push({
-                    type: 'full',
-                    element: currentListItems[0].element
-                  });
-                  nextOverflowIdx = 1;
-                  currentStart += 1;
-                }
-
-                if (nextOverflowIdx === -1) {
-                  break;
-                }
-                currentListItems = currentListItems.slice(nextOverflowIdx);
-              }
+              // Page empty: force-place (oversized block on a fresh page)
+              currentPageItems.push({ type: 'full', element: first.block.element });
+              lineIdx++;
+              continue;
             }
           }
+        }
+
+        // Non-atomic (text) line: collect consecutive lines of the SAME block
+        // that fit on this page, emit one split-chunk for them, then break page.
+        const block = first.block;
+        let endIdx = lineIdx;
+        let chunkBottomAbs = first.absTop;
+        while (endIdx < total) {
+          const le = lineStream[endIdx];
+          if (le.block !== block || le.atomic) break;
+          if (le.absBottom - currentPageStartY <= MAX_CONTENT_HEIGHT + 0.5) {
+            chunkBottomAbs = le.absBottom;
+            endIdx++;
+          } else {
+            break;
+          }
+        }
+
+        if (endIdx > lineIdx) {
+          const offset = first.offsetTop;
+          const chunkHeight = chunkBottomAbs - first.absTop;
+          const isLastLine = endIdx >= total || lineStream[endIdx].block !== block;
+          currentPageItems.push({
+            type: 'split-chunk',
+            element: block.element,
+            chunkHeight,
+            offset,
+            isFirst: offset === 0,
+            isLast: isLastLine,
+            marginTop: block.element.style.marginTop,
+            marginBottom: block.element.style.marginBottom
+          });
+          lineIdx = endIdx;
+          if (lineIdx < total && lineStream[lineIdx].block === block && !lineStream[lineIdx].atomic) {
+            createNewPage(lineStream[lineIdx].absTop);
+          }
+        } else {
+          // Not even one line fits → new page (guard: page empty => force-place one line)
+          if (currentPageItems.length === 0) {
+            currentPageItems.push({
+              type: 'split-chunk',
+              element: block.element,
+              chunkHeight: first.offsetBottom,
+              offset: first.offsetTop,
+              isFirst: first.offsetTop === 0,
+              isLast: false,
+              marginTop: block.element.style.marginTop,
+              marginBottom: block.element.style.marginBottom
+            });
+            lineIdx++;
+          }
+          createNewPage(lineIdx < total ? lineStream[lineIdx].absTop : first.absTop);
         }
       }
 
