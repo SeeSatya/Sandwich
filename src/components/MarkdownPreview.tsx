@@ -405,6 +405,8 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         isLast?: boolean;
         marginTop?: string;
         marginBottom?: string;
+        /** scale factor for shrink-to-fit visual blocks (diagrams, code) */
+        fitScale?: number;
       }
 
       interface PageData {
@@ -440,7 +442,21 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         if (layout.isHeader && spaceLeft < 120) {
           createNewPage(layout.top);
         } else if ((layout.isCodeBlock || layout.isDiagram) && spaceLeft < layout.height + 10) {
-          // Push unsplittable visual blocks to next page if there is not enough space.
+          // Visual block doesn't fit in the remaining space. Instead of pushing
+          // it whole to the next page (which leaves a large blank gap), shrink it
+          // to fit when it would occupy a reasonable share of the space left.
+          // The block keeps its aspect ratio; the wrapper reserves the scaled
+          // height so the page box stays correct.
+          const fitRatio = spaceLeft / layout.height;
+          if (fitRatio >= 0.55 && layout.height > 0 && currentPageItems.length > 0) {
+            currentPageItems.push({
+              type: 'full',
+              element: layout.element,
+              fitScale: fitRatio
+            });
+            continue;
+          }
+          // Otherwise push it whole to the next page.
           if (currentPageItems.length > 0) {
             createNewPage(layout.top);
           }
@@ -657,7 +673,29 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
 
         pageData.items.forEach(item => {
           if (item.type === 'full') {
-            wrapper.appendChild(item.element.cloneNode(true));
+            if (item.fitScale && item.fitScale < 1) {
+              // Shrink-to-fit: transform scales the block visually; the wrapper
+              // reserves the scaled height (and margin compensation) so the
+              // page box geometry stays truthful.
+              const scaleBox = document.createElement('div');
+              const fullH = item.element.getBoundingClientRect().height;
+              const scaledH = fullH * item.fitScale;
+              scaleBox.className = 'fit-scale-box';
+              scaleBox.style.height = `${scaledH}px`;
+              scaleBox.style.width = '100%';
+              scaleBox.style.overflow = 'hidden';
+              scaleBox.style.margin = '0 auto 1em auto';
+              scaleBox.style.position = 'relative';
+              const inner = item.element.cloneNode(true) as HTMLElement;
+              inner.style.transform = `scale(${item.fitScale})`;
+              inner.style.transformOrigin = 'top left';
+              inner.style.width = `${100 / item.fitScale}%`;
+              inner.style.margin = '0';
+              scaleBox.appendChild(inner);
+              wrapper.appendChild(scaleBox);
+            } else {
+              wrapper.appendChild(item.element.cloneNode(true));
+            }
           } else if (item.type === 'list-split') {
             const list = document.createElement(item.tagName || 'ul');
             if (item.tagName === 'OL') {
@@ -854,11 +892,12 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
 
          /* Limit Mermaid diagram size. No transform:scale here — a transform
             shrinks the drawing but NOT its layout box, which left large blank
-            gaps around diagrams. width:auto + max-height lets the browser
-            shrink the box itself while preserving the aspect ratio. */
+            gaps around diagrams. max-height matches the usable A4 content
+            height so a diagram can use the full page; the paginator's
+            shrink-to-fit scales it down when it doesn't fit the space left. */
          .mermaid-container svg {
             max-width: 100%;
-            max-height: 380px;
+            max-height: 920px;
             height: auto;
             display: block;
             margin: 0 auto;
