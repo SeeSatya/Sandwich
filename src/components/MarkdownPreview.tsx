@@ -681,32 +681,47 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         wrapper.style.overflow = 'hidden';
         page.appendChild(wrapper);
 
-        // Night Sky: decorative star tracks in the page margins. Absolute +
-        // pointer-events:none ⇒ they never affect measurement or pagination.
-        if (theme.name === 'Night Sky') {
-          const starTrack = (side: 'left' | 'right') => {
-            const host = document.createElement('div');
-            host.innerHTML = `<svg class="page-star-track ${side}" viewBox="0 0 40 1000" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M20 60 L21.5 68 L28 70 L21.5 72 L20 80 L18.5 72 L12 70 L18.5 68 Z" fill="#E2E8F0" opacity="0.7"/>
-              <path d="M16 260 L17.2 265 L22 266 L17.2 267 L16 272 L14.8 267 L10 266 L14.8 265 Z" fill="#818CF8" opacity="0.8"/>
-              <path d="M24 490 L25.5 496 L31 498 L25.5 500 L24 506 L22.5 500 L17 498 L22.5 496 Z" fill="#E2E8F0" opacity="0.6"/>
-              <path d="M18 730 L19.2 735 L24 736 L19.2 737 L18 742 L16.8 737 L12 736 L16.8 735 Z" fill="#818CF8" opacity="0.75"/>
-              <path d="M22 910 L23.5 917 L29 919 L23.5 921 L22 928 L20.5 921 L15 919 L20.5 917 Z" fill="#E2E8F0" opacity="0.7"/>
-              <circle cx="12" cy="120" r="1.5" fill="#818CF8" opacity="0.6"/>
-              <circle cx="28" cy="180" r="1.0" fill="#E2E8F0" opacity="0.45"/>
-              <circle cx="14" cy="340" r="1.8" fill="#E2E8F0" opacity="0.7"/>
-              <circle cx="26" cy="410" r="1.2" fill="#818CF8" opacity="0.55"/>
-              <circle cx="12" cy="580" r="1.4" fill="#818CF8" opacity="0.65"/>
-              <circle cx="27" cy="650" r="1.0" fill="#E2E8F0" opacity="0.4"/>
-              <circle cx="15" cy="810" r="1.6" fill="#E2E8F0" opacity="0.7"/>
-              <circle cx="26" cy="860" r="1.2" fill="#818CF8" opacity="0.55"/>
-              <circle cx="14" cy="960" r="1.5" fill="#818CF8" opacity="0.6"/>
-            </svg>`;
-            return host.firstElementChild as HTMLElement;
-          };
-          page.appendChild(starTrack('left'));
-          page.appendChild(starTrack('right'));
-        }
+        // Theme signature marks (absolute + pointer-events:none ⇒ no effect
+        // on measurement or pagination). A signature is structural — a page
+        // frame or corner mark — not scattered decoration.
+        const addSignature = () => {
+          if (theme.name === 'Night Sky') {
+            // Refined constellation: a thin hairline down each margin with a
+            // few subtle junction points — reads as a deliberate frame, not
+            // scattered stickers.
+            const track = (side: 'left' | 'right') => {
+              const host = document.createElement('div');
+              host.innerHTML = `<svg class="page-star-track ${side}" viewBox="0 0 40 1000" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <line x1="20" y1="40" x2="20" y2="960" stroke="#818CF8" stroke-width="0.6" opacity="0.35"/>
+                <circle cx="20" cy="120" r="2.2" fill="#E2E8F0" opacity="0.5"/>
+                <circle cx="20" cy="360" r="1.4" fill="#818CF8" opacity="0.5"/>
+                <circle cx="20" cy="640" r="2.2" fill="#E2E8F0" opacity="0.45"/>
+                <circle cx="20" cy="880" r="1.4" fill="#818CF8" opacity="0.5"/>
+                <line x1="20" y1="120" x2="20" y2="360" stroke="#818CF8" stroke-width="0.5" opacity="0.25"/>
+                <line x1="20" y1="360" x2="20" y2="640" stroke="#818CF8" stroke-width="0.5" opacity="0.25"/>
+              </svg>`;
+              return host.firstElementChild as HTMLElement;
+            };
+            page.appendChild(track('left'));
+            page.appendChild(track('right'));
+          } else if (theme.name === 'Blueprint') {
+            // Registration/crop marks at the four page corners — the visual
+            // signature of a technical drawing.
+            const marks = document.createElement('div');
+            marks.className = 'page-corner-marks';
+            marks.innerHTML = [
+              'tl', 'tr', 'bl', 'br'
+            ].map(corner => `<span class="mark ${corner}"></span>`).join('');
+            page.appendChild(marks);
+          } else if (theme.name === 'Ledger') {
+            // A single thin rule at the top of every page — the editorial
+            // running-rule signature (header text sits above it).
+            const rule = document.createElement('div');
+            rule.className = 'page-top-rule';
+            page.appendChild(rule);
+          }
+        };
+        addSignature();
 
         if (showPageNumbers && pageData.pageNum > 1) {
           const pageNumDiv = document.createElement('div');
@@ -959,8 +974,37 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
          }
          .page-star-track.left { left: 2mm; }
          .page-star-track.right { right: 2mm; }
+
+         /* Blueprint registration marks — corner crop marks */
+         .page-corner-marks { position: absolute; inset: 6mm; pointer-events: none; z-index: 1; }
+         .page-corner-marks .mark { position: absolute; width: 5mm; height: 5mm; }
+         .page-corner-marks .mark::before,
+         .page-corner-marks .mark::after {
+           content: ''; position: absolute; background: ${theme.colors.primary}; opacity: 0.45;
+         }
+         .page-corner-marks .mark::before { width: 5mm; height: 0.4mm; }
+         .page-corner-marks .mark::after { width: 0.4mm; height: 5mm; }
+         .page-corner-marks .tl { top: 0; left: 0; }
+         .page-corner-marks .tr { top: 0; right: 0; }
+         .page-corner-marks .bl { bottom: 0; left: 0; }
+         .page-corner-marks .br { bottom: 0; right: 0; }
+         .page-corner-marks .tr::before { right: 0; }
+         .page-corner-marks .tr::after { right: 0; }
+         .page-corner-marks .bl::before { bottom: 0; }
+         .page-corner-marks .bl::after { bottom: 0; }
+         .page-corner-marks .br::before { right: 0; bottom: 0; }
+         .page-corner-marks .br::after { right: 0; bottom: 0; }
+
+         /* Ledger — a hairline running rule above the content area */
+         .page-top-rule {
+           position: absolute; top: calc(${getVerticalPadding()} - 4mm);
+           left: ${getHorizontalPadding()}; right: ${getHorizontalPadding()};
+           height: 0.4mm; background: ${theme.colors.primary}; opacity: 0.55;
+           pointer-events: none; z-index: 1;
+         }
+
          @media print {
-           .page-star-track {
+           .page-star-track, .page-corner-marks, .page-top-rule {
              -webkit-print-color-adjust: exact !important;
              print-color-adjust: exact !important;
            }
@@ -1048,6 +1092,65 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           .page h3:not(.html-render-block *) { font-size: 13pt !important; font-weight: 700 !important; }
           .page :is(h4, h5, h6):not(.html-render-block *) { font-size: 12pt !important; font-weight: 700 !important; }
           .page :is(table, td, th):not(.html-render-block *) { font-size: 10pt !important; }
+          ` : ''}
+
+          ${theme.name === 'Ledger' ? `
+          /* Ledger — Swiss editorial: rule-based headings, no color blocks */
+          .page h1:not(.html-render-block *) {
+            font-size: 21pt !important; font-weight: 900 !important;
+            letter-spacing: -0.01em; border-bottom: 2.5px solid ${theme.colors.primary} !important;
+            padding-bottom: 0.25em;
+          }
+          .page h2:not(.html-render-block *) {
+            font-size: 15pt !important; font-weight: 800 !important;
+            letter-spacing: 0.02em; text-transform: uppercase !important;
+            border-bottom: 1px solid ${theme.colors.primary} !important;
+            padding-bottom: 0.2em;
+          }
+          .page h3:not(.html-render-block *) {
+            font-size: 12.5pt !important; font-weight: 700 !important;
+            letter-spacing: 0.01em;
+          }
+          .page h3:not(.html-render-block *)::before {
+            content: '§\\00a0\\00a0'; color: ${theme.colors.primary}; font-weight: 900;
+          }
+          ` : ''}
+
+          ${theme.name === 'Blueprint' ? `
+          /* Blueprint — technical drawing: mono headings, boxed h2, dashed rules */
+          .page h1:not(.html-render-block *) {
+            font-size: 20pt !important; font-weight: 700 !important;
+            text-transform: uppercase !important; letter-spacing: 0.08em !important;
+            border: 2px solid ${theme.colors.primary} !important;
+            padding: 0.4em 0.6em; display: inline-block;
+          }
+          .page h2:not(.html-render-block *) {
+            font-size: 14pt !important; font-weight: 700 !important;
+            text-transform: uppercase !important; letter-spacing: 0.06em;
+            border-bottom: 2px dashed ${theme.colors.primary} !important;
+            padding-bottom: 0.25em;
+          }
+          .page h3:not(.html-render-block *) {
+            font-size: 12pt !important; font-weight: 700 !important; letter-spacing: 0.04em;
+          }
+          .page h3:not(.html-render-block *)::before {
+            content: '// '; color: ${theme.colors.primary};
+          }
+          .page table:not(.html-render-block *) {
+            border: 1.5px solid ${theme.colors.primary} !important;
+          }
+          ` : ''}
+
+          ${theme.name === 'Operator' ? `
+          /* Operator — terminal report: mono headings with // markers */
+          .page h2:not(.html-render-block *) {
+            font-size: 14pt !important; font-weight: 700 !important;
+            border-left: 4px solid ${theme.colors.primary} !important;
+            padding-left: 0.5em; text-transform: uppercase !important; letter-spacing: 0.05em;
+          }
+          .page h3:not(.html-render-block *)::before {
+            content: '// '; color: ${theme.colors.primary}; font-weight: 700;
+          }
           ` : ''}
 
           table:not(.html-render-block *) {
