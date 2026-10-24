@@ -272,59 +272,21 @@ export const THEME_PRESETS: AppTheme[] = [
     }
   },
   {
-    name: 'Ledger', // Swiss editorial — rule-based headings, running rule
+    name: 'Pixelize', // Pixel paper — grid texture, pixel type, burst corners
     isDark: false,
     colors: {
-      primary: '#0F172A',       // Ink navy
-      secondary: '#475569',
-      background: '#FFFFFF',
-      text: '#1F2937',
-      codeBackground: '#F1F5F9',
-      heading: '#0F172A',
-      border: '#CBD5E1',
-      codeBlockDark: '#0F172A'
+      primary: '#6A2C6B',       // Plum (matches DocIT chrome)
+      secondary: '#9CA3AF',
+      background: '#F4F4F5',    // Default light gray — tintable
+      text: '#18181B',
+      codeBackground: '#E4E4E7',
+      heading: '#09090B',
+      border: '#D4D4D8',
+      codeBlockDark: '#18181B'
     },
     fonts: {
-      heading: 'Inter, sans-serif',
-      body: 'Inter, sans-serif',
-      code: 'JetBrains Mono, monospace',
-    }
-  },
-  {
-    name: 'Blueprint', // Technical drawing — corner registration marks
-    isDark: true,
-    colors: {
-      primary: '#38BDF8',       // Cyan chalk
-      secondary: '#7DD3FC',
-      background: '#0B1D33',    // Blueprint paper
-      text: '#D7E6F5',
-      codeBackground: '#10273F',
-      heading: '#FFFFFF',
-      border: '#1E3A55',
-      codeBlockDark: '#071625'
-    },
-    fonts: {
-      heading: 'Space Mono, monospace',
-      body: 'Inter, sans-serif',
-      code: 'JetBrains Mono, monospace',
-    }
-  },
-  {
-    name: 'Operator', // Terminal report — dark, mono, // markers
-    isDark: true,
-    colors: {
-      primary: '#4ADE80',       // Terminal green
-      secondary: '#86EFAC',
-      background: '#0C0E0C',
-      text: '#D1D5DB',
-      codeBackground: '#131613',
-      heading: '#F9FAFB',
-      border: '#1F2937',
-      codeBlockDark: '#050705'
-    },
-    fonts: {
-      heading: 'JetBrains Mono, monospace',
-      body: 'Inter, sans-serif',
+      heading: '"Press Start 2P", monospace',
+      body: '"VT323", monospace',
       code: 'JetBrains Mono, monospace',
     }
   }
