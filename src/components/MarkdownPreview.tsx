@@ -40,6 +40,20 @@ interface MarkdownPreviewProps {
 export const preprocessMarkdown = (text: string): string => {
   if (!text) return '';
 
+  // remark-math uses `$` / `$$` delimiters. Accept the common LaTeX
+  // `\(...\)` and `\[...\]` forms too. Use inline delimiters for `\[...\]`
+  // because equations often appear inside list paragraphs; `$$` is a block
+  // delimiter and would otherwise be treated as literal text there.
+  text = text.split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)/g).map((part, index) => {
+    if (index % 2 === 1) return part;
+    return part
+      // Some pasted/generated Markdown contains JSON-style escaped slashes
+      // (for example `\\[ ... \\]` and `\\frac`). Restore TeX commands first.
+      .replace(/\\\\/g, '\\')
+      .replace(/\\\[([\s\S]*?)\\\]/g, (_match, formula: string) => `$${formula}$`)
+      .replace(/\\\(([\s\S]*?)\\\)/g, (_match, formula: string) => `$${formula}$`);
+  }).join('');
+
   // Side-by-side columns: `::: columns` ... `|||` (separator) ... `:::`.
   // Emit flex divs with blank lines around each cell so the inner markdown
   // (including ```mermaid blocks) is still parsed by react-markdown.
