@@ -2,7 +2,10 @@
 import React, { useLayoutEffect, useRef, useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import rehypeRaw from 'rehype-raw';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import {
   oneLight,
@@ -1282,8 +1285,8 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       <div className="w-full h-full flex flex-col items-center print:min-h-screen print:overflow-visible">
         <div ref={sourceRef} id="markdown-source" className="markdown-source">
           <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeRaw]}
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[rehypeRaw, rehypeKatex]}
             components={{
               pre: ({ children }) => <div>{children}</div>,
               code: ({ inline, className, children, ...props }: any) => {
