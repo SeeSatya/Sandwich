@@ -50,6 +50,10 @@ export const preprocessMarkdown = (text: string): string => {
       // Some pasted/generated Markdown contains JSON-style escaped slashes
       // (for example `\\[ ... \\]` and `\\frac`). Restore TeX commands first.
       .replace(/\\\\/g, '\\')
+      // A standalone `\[...\]` is a display equation. Convert it to a real
+      // block so pagination treats the complete equation as one unit.
+      .replace(/^([ \t]*)\\\[([^\r\n]*?)\\\][ \t]*$/gm, (_match, indent: string, formula: string) =>
+        `${indent}$$\n${indent}${formula.trim()}\n${indent}$$`)
       .replace(/\\\[([\s\S]*?)\\\]/g, (_match, formula: string) => `$${formula}$`)
       .replace(/\\\(([\s\S]*?)\\\)/g, (_match, formula: string) => `$${formula}$`);
   }).join('');
@@ -367,6 +371,8 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         const isCodeBlock = child.tagName === 'PRE' ||
           child.classList.contains('code-block-wrapper') ||
           child.querySelector('.code-block-wrapper') !== null;
+        const isMathBlock = child.matches('.katex-display') ||
+          child.querySelector('.katex-display') !== null;
         const isList = child.tagName === 'OL' || child.tagName === 'UL';
 
         const childRect = child.getBoundingClientRect();
@@ -408,6 +414,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           isHeader,
           isDiagram,
           isCodeBlock,
+          isMathBlock,
           isList,
           listItems
         };
@@ -487,7 +494,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             });
           }
         } else {
-          const atomic = layout.isHeader || layout.isDiagram || layout.isCodeBlock ||
+          const atomic = layout.isHeader || layout.isDiagram || layout.isCodeBlock || layout.isMathBlock ||
             !(layout.tagName === 'P' || layout.tagName === 'BLOCKQUOTE' ||
               layout.tagName === 'DIV' || layout.tagName === 'SECTION');
           const m = measureLines(layout.element);
@@ -941,6 +948,15 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
          }
          /* html-render blocks style themselves — theme must not repaint them */
          
+         /* Keep display equations compact and prevent long formulas from
+            being clipped at the page edge. */
+         :is(.markdown-source, .page) .katex-display {
+            margin: 0.45em 0;
+            max-width: 100%;
+            overflow-x: auto;
+            overflow-y: hidden;
+         }
+
          /* Floated elements clear for main blocks */
          .page h1, .page h2, .page h3, .page h4, .page h5, .page h6, 
          .page hr, .page table, .page .code-block-wrapper, .page blockquote, 
