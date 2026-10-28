@@ -199,7 +199,7 @@ export const THEME_PRESETS: AppTheme[] = [
     name: 'Breeze',
     isDark: false,
     colors: {
-      primary: '#0891b2', 
+      primary: '#0891b2',
       secondary: '#64748b',
       background: '#f0f9ff',
       text: '#0c4a6e',
@@ -212,6 +212,82 @@ export const THEME_PRESETS: AppTheme[] = [
       heading: 'Inter, sans-serif',
       body: 'Inter, sans-serif',
       code: 'Fira Code, monospace',
+    }
+  },
+  {
+    name: 'Night Sky', // Celestial dark with star-dusted margins
+    isDark: true,
+    colors: {
+      primary: '#6366F1',       // Pulsar indigo
+      secondary: '#818CF8',     // Soft starlight periwinkle
+      background: '#0B0F19',    // Deep astronomical midnight
+      text: '#CBD5E1',          // Slate-300 starlight
+      codeBackground: '#111827',
+      heading: '#E2E8F0',
+      border: '#1E293B',
+      codeBlockDark: '#070A12'
+    },
+    fonts: {
+      heading: 'Inter, sans-serif',
+      body: 'Inter, sans-serif',
+      code: 'JetBrains Mono, monospace',
+    }
+  },
+  {
+    name: 'Monograph Cream', // Archival warm paper, editorial print
+    isDark: false,
+    colors: {
+      primary: '#9C4221',       // Burnt terracotta
+      secondary: '#766050',     // Warm walnut taupe
+      background: '#FBF8F3',    // Archival cream
+      text: '#2D241E',          // Deep warm espresso
+      codeBackground: '#F1EBE1',
+      heading: '#1C1612',
+      border: '#E3D9CC',
+      codeBlockDark: '#261F1A'
+    },
+    fonts: {
+      heading: 'Merriweather, serif',
+      body: 'Lato, sans-serif',
+      code: 'Source Code Pro, monospace',
+    }
+  },
+  {
+    name: 'Eucalyptus Mint', // Crisp botanical, clean spec-sheet
+    isDark: false,
+    colors: {
+      primary: '#0D9488',       // Teal-600 pine
+      secondary: '#5C8075',     // Muted eucalyptus
+      background: '#F4F9F6',    // Frosted pale mint
+      text: '#192C25',          // Dark forest spruce
+      codeBackground: '#E6F2EC',
+      heading: '#0B3B2C',
+      border: '#CBE3D7',
+      codeBlockDark: '#0D231B'
+    },
+    fonts: {
+      heading: 'Inter, sans-serif',
+      body: 'Inter, sans-serif',
+      code: 'Fira Code, monospace',
+    }
+  },
+  {
+    name: 'Pixelize', // Pixel paper — grid texture, pixel type, burst corners
+    isDark: false,
+    colors: {
+      primary: '#6A2C6B',       // Plum (matches DocIT chrome)
+      secondary: '#9CA3AF',
+      background: '#F4F4F5',    // Default light gray — tintable
+      text: '#18181B',
+      codeBackground: '#E4E4E7',
+      heading: '#09090B',
+      border: '#D4D4D8',
+      codeBlockDark: '#18181B'
+    },
+    fonts: {
+      heading: '"Press Start 2P", monospace',
+      body: '"VT323", monospace',
+      code: 'JetBrains Mono, monospace',
     }
   }
 ];

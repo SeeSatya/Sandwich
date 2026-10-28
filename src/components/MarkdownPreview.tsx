@@ -671,7 +671,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         if (pageData.items.length === 0) return;
 
         const page = document.createElement('div');
-        page.className = 'page';
+        page.className = theme.name === 'Pixelize' ? 'page theme-pixelize' : 'page';
         const wrapper = document.createElement('div');
         // Match the hidden measurement container's typography context so the
         // measured heights and the rendered heights stay in sync.
@@ -680,6 +680,48 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         wrapper.style.position = 'relative';
         wrapper.style.overflow = 'hidden';
         page.appendChild(wrapper);
+
+        // Theme signature marks (absolute + pointer-events:none ⇒ no effect
+        // on measurement or pagination). A signature is structural — a page
+        // frame or corner mark — not scattered decoration.
+        const addSignature = () => {
+          if (theme.name === 'Night Sky') {
+            // Refined constellation: a thin hairline down each margin with a
+            // few subtle junction points — reads as a deliberate frame, not
+            // scattered stickers.
+            const track = (side: 'left' | 'right') => {
+              const host = document.createElement('div');
+              host.innerHTML = `<svg class="page-star-track ${side}" viewBox="0 0 40 1000" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <line x1="20" y1="40" x2="20" y2="960" stroke="#818CF8" stroke-width="0.6" opacity="0.35"/>
+                <circle cx="20" cy="120" r="2.2" fill="#E2E8F0" opacity="0.5"/>
+                <circle cx="20" cy="360" r="1.4" fill="#818CF8" opacity="0.5"/>
+                <circle cx="20" cy="640" r="2.2" fill="#E2E8F0" opacity="0.45"/>
+                <circle cx="20" cy="880" r="1.4" fill="#818CF8" opacity="0.5"/>
+                <line x1="20" y1="120" x2="20" y2="360" stroke="#818CF8" stroke-width="0.5" opacity="0.25"/>
+                <line x1="20" y1="360" x2="20" y2="640" stroke="#818CF8" stroke-width="0.5" opacity="0.25"/>
+              </svg>`;
+              return host.firstElementChild as HTMLElement;
+            };
+            page.appendChild(track('left'));
+            page.appendChild(track('right'));
+          } else if (theme.name === 'Pixelize') {
+            // Pixel-burst corners: stepped squares in each corner
+            const burst = (corner: 'tl' | 'tr' | 'bl' | 'br') => {
+              const host = document.createElement('div');
+              host.innerHTML = `<svg class="pixel-corner ${corner}" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="0" y="0" width="4" height="4" fill="${theme.colors.primary}" opacity="0.9"/>
+                <rect x="4" y="0" width="2" height="2" fill="${theme.colors.secondary}" opacity="0.7"/>
+                <rect x="0" y="4" width="2" height="2" fill="${theme.colors.secondary}" opacity="0.7"/>
+                <rect x="4" y="4" width="1.4" height="1.4" fill="${theme.colors.primary}" opacity="0.5"/>
+                <rect x="6" y="0" width="1.2" height="1.2" fill="${theme.colors.primary}" opacity="0.4"/>
+                <rect x="0" y="6" width="1.2" height="1.2" fill="${theme.colors.primary}" opacity="0.4"/>
+              </svg>`;
+              return host.firstElementChild as HTMLElement;
+            };
+            (['tl', 'tr', 'bl', 'br'] as const).forEach(c => page.appendChild(burst(c)));
+          }
+        };
+        addSignature();
 
         if (showPageNumbers && pageData.pageNum > 1) {
           const pageNumDiv = document.createElement('div');
@@ -919,6 +961,98 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
          }
          .md-column > :first-child { margin-top: 0; }
 
+         /* Night Sky decorative star tracks in the page margins.
+            position:absolute + pointer-events:none ⇒ zero pagination impact. */
+         .page-star-track {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 12mm;
+            pointer-events: none;
+            z-index: 1;
+            overflow: hidden;
+         }
+         .page-star-track.left { left: 2mm; }
+         .page-star-track.right { right: 2mm; }
+
+         /* ---- Pixelize theme ---- */
+         /* Pixel-grid paper: fine square lattice over the page background,
+            with a sprinkle of "pixel particles" (single cells of accent
+            colour) scattered across the sheet. Pure background layers, so
+            nothing touches layout or text measurement. */
+         .page.theme-pixelize {
+            background-color: ${theme.colors.background};
+            background-image:
+              /* accent particles, deterministic positions */
+              radial-gradient(circle at 14% 18%, ${theme.colors.primary}55 0 2px, transparent 2px),
+              radial-gradient(circle at 82% 12%, ${theme.colors.secondary}66 0 2px, transparent 2px),
+              radial-gradient(circle at 91% 44%, ${theme.colors.primary}44 0 2px, transparent 2px),
+              radial-gradient(circle at 7% 62%, ${theme.colors.secondary}55 0 2px, transparent 2px),
+              radial-gradient(circle at 24% 88%, ${theme.colors.primary}44 0 2px, transparent 2px),
+              radial-gradient(circle at 76% 78%, ${theme.colors.secondary}55 0 2px, transparent 2px),
+              /* the pixel grid */
+              linear-gradient(to right, ${theme.colors.border} 1px, transparent 1px),
+              linear-gradient(to bottom, ${theme.colors.border} 1px, transparent 1px);
+            background-size:
+              100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%,
+              8px 8px, 8px 8px;
+            background-position: 0 0;
+         }
+         .page.theme-pixelize.theme-pixelize-print {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+         }
+
+         /* Pixel-burst corners: a stepped block of squares in each corner */
+         .pixel-corner { position: absolute; width: 14mm; height: 14mm; pointer-events: none; z-index: 1; }
+         .pixel-corner.tl { top: 0; left: 0; }
+         .pixel-corner.tr { top: 0; right: 0; transform: scaleX(-1); }
+         .pixel-corner.bl { bottom: 0; left: 0; transform: scaleY(-1); }
+         .pixel-corner.br { bottom: 0; right: 0; transform: scale(-1, -1); }
+
+         /* Pixel headings: blocky, with a stepped accent bar */
+         .page.theme-pixelize h1:not(.html-render-block *),
+         .page.theme-pixelize h2:not(.html-render-block *) {
+            letter-spacing: 0 !important;
+            text-transform: uppercase !important;
+            border-bottom: none !important;
+            padding-bottom: 0.4em;
+            position: relative;
+         }
+         .page.theme-pixelize h1:not(.html-render-block *)::after,
+         .page.theme-pixelize h2:not(.html-render-block *)::after {
+            content: '';
+            position: absolute; left: 0; bottom: 0;
+            width: 100%; height: 6px;
+            background-image:
+              linear-gradient(to right, ${theme.colors.primary} 0 8px, transparent 8px 10px),
+              linear-gradient(to right, ${theme.colors.secondary} 0 4px, transparent 4px 10px);
+            background-size: 10px 6px, 10px 3px;
+            background-repeat: repeat-x, repeat-x;
+            background-position: 0 0, 0 3px;
+         }
+         .page.theme-pixelize h3:not(.html-render-block *) {
+            letter-spacing: 0 !important;
+            border-left: 6px solid ${theme.colors.primary} !important;
+            padding-left: 0.5em;
+         }
+
+         /* Pixel punctuation: full stops and commas render as solid squares.
+            Achieved with a monospace-adjacent pixel font, so glyphs are
+            already blocky — reinforce with tighter word/letter spacing. */
+         .page.theme-pixelize p:not(.html-render-block *),
+         .page.theme-pixelize li:not(.html-render-block *) {
+            word-spacing: -0.02em;
+            text-align: left !important;
+         }
+
+         @media print {
+           .page-star-track, .pixel-corner {
+             -webkit-print-color-adjust: exact !important;
+             print-color-adjust: exact !important;
+           }
+         }
+
          /* Limit Mermaid diagram size. No transform:scale here — a transform
             shrinks the drawing but NOT its layout box, which left large blank
             gaps around diagrams. max-height matches the usable A4 content
@@ -1002,6 +1136,32 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           .page :is(h4, h5, h6):not(.html-render-block *) { font-size: 12pt !important; font-weight: 700 !important; }
           .page :is(table, td, th):not(.html-render-block *) { font-size: 10pt !important; }
           ` : ''}
+
+          ${theme.name === 'Pixelize' ? `
+          /* Pixelize — pixel type. Press Start 2P is very wide, so headings
+             are scaled down hard and body copy uses VT323 (readable pixel
+             face) at a larger optical size. */
+          .page {
+            font-size: 15pt !important;
+            line-height: 1.45 !important;
+          }
+          .page h1:not(.html-render-block *) { font-size: 15pt !important; line-height: 1.5 !important; margin-bottom: 1em; }
+          .page h2:not(.html-render-block *) { font-size: 11.5pt !important; line-height: 1.6 !important; }
+          .page h3:not(.html-render-block *) { font-size: 10pt !important; line-height: 1.6 !important; }
+          .page :is(h4, h5, h6):not(.html-render-block *) { font-size: 8.5pt !important; }
+          .page :is(p, li):not(.html-render-block *) {
+            font-size: 15pt !important;
+            line-height: 1.45 !important;
+          }
+          .page :is(table, td, th):not(.html-render-block *) {
+            font-size: 13pt !important;
+          }
+          .page pre:not(.html-render-block *), .page code:not(.html-render-block *) {
+            font-size: 9pt !important;
+          }
+          ` : ''}
+
+
 
           table:not(.html-render-block *) {
             width: 100%;

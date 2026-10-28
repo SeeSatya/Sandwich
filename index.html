@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>MarkMind PDF</title>
+  <title>DocIT</title>
   <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
   <script>
     tailwind.config = {
@@ -18,6 +18,24 @@
             slate: {
               850: '#151f32',
               950: '#020617',
+            },
+            // DocIT app-chrome palette (plum/violet stripe set)
+            docit: {
+              bg: '#0E0B12',
+              'bg-deep': '#07050A',
+              surface: '#211428',
+              'surface-hover': '#2B1A34',
+              elevated: '#2D1937',
+              border: '#3A1C42',
+              'border-light': '#52275D',
+              accent: '#6A2C6B',
+              'accent-hover': '#7E3580',
+              'accent-active': '#562257',
+              'accent-subtle': '#3F1E42',
+              'accent-glow': '#A84EA9',
+              text: '#F2D7F7',
+              'text-muted': '#BFA4C7',
+              'text-tertiary': '#7D6584',
             }
           }
         },
@@ -27,7 +45,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Merriweather:wght@300;400;700;900&family=Fira+Code:wght@400;500;600&family=Playfair+Display:wght@400;600;700;800;900&family=Lato:wght@300;400;700;900&family=JetBrains+Mono:wght@400;500;600&family=Roboto+Mono:wght@400;500;600&family=Source+Code+Pro:wght@400;600&family=DM+Mono:wght@400;500&family=Space+Mono:wght@400;700&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Merriweather:wght@300;400;700;900&family=Fira+Code:wght@400;500;600&family=Playfair+Display:wght@400;600;700;800;900&family=Lato:wght@300;400;700;900&family=JetBrains+Mono:wght@400;500;600&family=Roboto+Mono:wght@400;500;600&family=Source+Code+Pro:wght@400;600&family=DM+Mono:wght@400;500&family=Space+Mono:wght@400;700&family=Press+Start+2P&family=VT323&display=swap"
     rel="stylesheet">
   <style>
     /* Custom Scrollbar */
@@ -185,7 +203,7 @@
   <link rel="stylesheet" href="/index.css">
 </head>
 
-<body class="bg-slate-950 text-slate-200 antialiased">
+<body class="bg-docit-bg text-docit-text antialiased">
   <div id="root"></div>
   <script type="module" src="/src/index.tsx"></script>
 </body>
