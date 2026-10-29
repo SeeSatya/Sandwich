@@ -136,6 +136,24 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
 
   useEffect(() => {
     let active = true;
+    let renderId: string | null = null;
+
+    const isolateMeasurementHost = (id: string) => {
+      // Mermaid creates a temporary `d${id}` element directly under <body> to
+      // measure the SVG. Leaving it in normal flow adds ~150px to document
+      // height and makes the browser scrollbar repeatedly appear/disappear.
+      const host = document.getElementById(`d${id}`) as HTMLElement | null;
+      if (!host) return;
+      host.style.setProperty('position', 'fixed', 'important');
+      host.style.setProperty('left', '-10000px', 'important');
+      host.style.setProperty('top', '0', 'important');
+      host.style.setProperty('visibility', 'hidden', 'important');
+      host.style.setProperty('pointer-events', 'none', 'important');
+    };
+
+    const removeMeasurementHost = () => {
+      if (renderId) document.getElementById(`d${renderId}`)?.remove();
+    };
 
     const renderChart = async () => {
       if (!chart) return;
@@ -157,8 +175,10 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
           processedChart = processedChart.replace(/\n[ \t]*((?:--+|==+|-\.|<--|<==|--[ox])[^\n]*)/g, ' $1');
         }
 
-        const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
-        let { svg } = await mermaid.render(id, processedChart);
+        renderId = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
+        const renderPromise = mermaid.render(renderId, processedChart);
+        isolateMeasurementHost(renderId);
+        let { svg } = await renderPromise;
 
         // Some chart types (xychart) emit fixed width/height without a
         // viewBox, so CSS can only crop them, never scale them. Add the
@@ -177,6 +197,8 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
           console.error("Mermaid Render Error:", err);
           setError("Diagram Syntax Error");
         }
+      } finally {
+        removeMeasurementHost();
       }
     };
 
@@ -184,6 +206,7 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
 
     return () => {
       active = false;
+      removeMeasurementHost();
     };
   }, [chart, theme]);
 
@@ -212,14 +235,15 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
       }}
     >
       <div
-        className="max-w-full"
+        className="w-full max-w-full"
+        style={{ width: '100%' }}
         dangerouslySetInnerHTML={{ __html: svg }}
       />
       <style>{`
         .mermaid-container svg {
           width: 100% !important;
           max-width: 100% !important;
-          max-height: 380px !important;
+          max-height: 680px !important;
           height: auto !important;
         }
       `}</style>

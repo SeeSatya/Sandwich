@@ -18,6 +18,7 @@ import {
 } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { AppTheme } from '../types';
 import MermaidDiagram from './MermaidDiagram';
+import RadModelDiagram from './RadModelDiagram';
 import DiagramBlock from './DiagramBlock';
 
 interface MarkdownPreviewProps {
@@ -60,8 +61,9 @@ export const preprocessMarkdown = (text: string): string => {
 
   // ChatGPT sometimes copies a rendered Mermaid graphic as its scoped CSS
   // followed by the SVG's visible labels, while dropping the actual SVG paths.
-  // For the common Waterfall diagram this leaves enough information to recover
-  // its linear stages. Split labels that were concatenated when HTML was copied.
+  // The copied style blob omits original edges and node positions, so recover
+  // known diagram structures from their heading and visible labels. Split labels
+  // that were concatenated when HTML was copied.
   text = text.replace(/^([ \t]*)(?:\\?#chatgpt-mermaid-[^\r\n]*)$/gm, (artifactLine, indent: string) => {
     const cssEnd = artifactLine.lastIndexOf('}');
     if (cssEnd < 0) return artifactLine;
@@ -81,12 +83,59 @@ export const preprocessMarkdown = (text: string): string => {
       else labels.push(label);
     }
 
-    // Avoid converting arbitrary ChatGPT SVG styles into a guessed diagram.
-    if (labels.length < 2 || !/waterfall/i.test(text.slice(0, text.indexOf(artifactLine)))) return artifactLine;
+    const precedingText = text.slice(0, text.indexOf(artifactLine));
+    if (labels.length < 2) return artifactLine;
 
-    const nodes = labels.map((label, i) => `  W${i}["${label.replace(/"/g, '\\\"')}"]`);
-    const edges = labels.slice(1).map((_, i) => `  W${i} --> W${i + 1}`);
-    return `${indent}\`\`\`mermaid\nflowchart TD\n${[...nodes, ...edges].join('\n')}\n\`\`\``;
+    const radStages = ['Requirements Planning', 'User Design', 'Construction', 'Cutover', 'User Feedback', 'Improvements'];
+    const isRadDiagram = /RAD Model/i.test(precedingText) && radStages.every(stage =>
+      labels.some(label => label.toLowerCase() === stage.toLowerCase())
+    );
+
+    let chart: string;
+    if (isRadDiagram) {
+      // Recover the RAD feedback loop and iteration path omitted by the copied text.
+      chart = [
+        'flowchart TB',
+        '  subgraph constructionRow[" "]',
+        '    direction LR',
+        '    C["Construction"]',
+        '  end',
+        '  subgraph designRow[" "]',
+        '    direction LR',
+        '    RP["Requirements Planning"]',
+        '    CUT["Cutover"]',
+        '    IMP(["Improvements"])',
+        '    RP ~~~ CUT',
+        '    CUT ~~~ IMP',
+        '  end',
+        '  subgraph feedbackRow[" "]',
+        '    direction LR',
+        '    UF(["User Feedback"])',
+        '    UD["User Design"]',
+        '    UF ~~~ UD',
+        '  end',
+        '  C --> CUT',
+        '  C -.-> IMP',
+        '  IMP -.-> UD',
+        '  RP --> UD',
+        '  UF -.-> UD',
+        '  UD --> C',
+        '  classDef phase fill:#00284d,stroke:#1f4e94,color:#99ceff,stroke-width:1px,rx:16px,ry:16px',
+        '  classDef feedback fill:#000e1a,stroke:#1a3e5f,color:#99ceff,stroke-width:1px',
+        '  class C,CUT,RP,UD phase',
+        '  class IMP,UF feedback',
+        '  linkStyle default stroke:#afafaf,stroke-width:1px',
+      ].join('\n');
+    } else if (/waterfall/i.test(precedingText)) {
+      const nodes = labels.map((label, i) => `  W${i}["${label.replace(/"/g, '\\\"')}"]`);
+      const edges = labels.slice(1).map((_, i) => `  W${i} --> W${i + 1}`);
+      chart = `flowchart TD\n${[...nodes, ...edges].join('\n')}`;
+    } else {
+      return artifactLine;
+    }
+
+    const language = isRadDiagram ? 'chatgpt-rad' : 'mermaid';
+    return `${indent}\`\`\`${language}\n${chart}\n\`\`\``;
   });
 
   // Side-by-side columns: `::: columns` ... `|||` (separator) ... `:::`.
@@ -308,11 +357,9 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       // Measure parent element width to avoid scrollbar layout loop!
       const parentWidth = containerRef.current.parentElement.clientWidth - 32;
       const pageWidthPx = 210 * (96 / 25.4);
-      if (parentWidth < pageWidthPx) {
-        setScale(parentWidth / pageWidthPx);
-      } else {
-        setScale(1);
-      }
+      const nextScale = Math.min(1, Math.max(0.1, parentWidth / pageWidthPx));
+      const roundedScale = Math.round(nextScale * 1000) / 1000;
+      setScale(current => current === roundedScale ? current : roundedScale);
     };
 
     updateScale();
@@ -719,8 +766,11 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       }
       lastSignature = signature;
 
-      // Clear target to rebuild pages
-      target.innerHTML = '';
+      // Build the new page stack off-DOM, then swap it in once. Clearing and
+      // appending pages one at a time briefly collapses scrollHeight, making
+      // the preview scrollbar flash and resetting the user's scroll position.
+      const pageStack = document.createDocumentFragment();
+      const previousScrollTop = containerRef.current?.scrollTop ?? 0;
 
       pagesData.forEach(pageData => {
         if (pageData.items.length === 0) return;
@@ -855,8 +905,11 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           }
         });
 
-        target.appendChild(page);
+        pageStack.appendChild(page);
       });
+
+      target.replaceChildren(pageStack);
+      if (containerRef.current) containerRef.current.scrollTop = previousScrollTop;
     };
 
     let debounceTimeout: any = null;
@@ -1351,9 +1404,13 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             components={{
               pre: ({ children }) => <div>{children}</div>,
               code: ({ inline, className, children, ...props }: any) => {
-                const match = /language-(\w+)/.exec(className || '');
+                const match = /language-([\w-]+)/.exec(className || '');
                 const language = match ? match[1] : '';
                 const codeContent = String(children).replace(/\n$/, '');
+
+                if (language === 'chatgpt-rad') {
+                  return <RadModelDiagram theme={theme} />;
+                }
 
                 // ```html-render``` or ```html-render:16:9``` — render raw HTML
                 // as a block (like an image), optional aspect ratio after colon.
