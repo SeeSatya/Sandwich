@@ -73,9 +73,15 @@ export const preprocessMarkdown = (text: string, theme?: AppTheme): string => {
     const labelsText = artifactLine.slice(cssEnd + 1).trim();
     if (!labelsText) return artifactLine;
 
-    const splitLabels = labelsText
-      .replace(/([a-z0-9])([A-Z])/g, '$1\n$2')
-      .split(/\r?\n/)
+    const numberedLabels = labelsText
+      .split(/(?=[0-9]+[.)][ \t]*)/)
+      .map((label: string) => label.replace(/^\s*\d+[.)]\s*/, '').trim())
+      .filter(Boolean);
+    const hasNumberedLabels = numberedLabels.length > 1 && /^\s*\d+[.)]\s*/.test(labelsText);
+    const splitLabels = (hasNumberedLabels
+      ? numberedLabels
+      : labelsText.replace(/([a-z0-9])([A-Z])/g, '$1\n$2').split(/\r?\n/)
+    )
       .map((label: string) => label.trim())
       .filter(Boolean);
     const labels: string[] = [];
