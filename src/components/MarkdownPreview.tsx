@@ -58,6 +58,37 @@ export const preprocessMarkdown = (text: string): string => {
       .replace(/\\\(([\s\S]*?)\\\)/g, (_match, formula: string) => `$${formula}$`);
   }).join('');
 
+  // ChatGPT sometimes copies a rendered Mermaid graphic as its scoped CSS
+  // followed by the SVG's visible labels, while dropping the actual SVG paths.
+  // For the common Waterfall diagram this leaves enough information to recover
+  // its linear stages. Split labels that were concatenated when HTML was copied.
+  text = text.replace(/^([ \t]*)(?:\\?#chatgpt-mermaid-[^\r\n]*)$/gm, (artifactLine, indent: string) => {
+    const cssEnd = artifactLine.lastIndexOf('}');
+    if (cssEnd < 0) return artifactLine;
+
+    const labelsText = artifactLine.slice(cssEnd + 1).trim();
+    if (!labelsText) return artifactLine;
+
+    const splitLabels = labelsText
+      .replace(/([a-z0-9])([A-Z])/g, '$1\n$2')
+      .split(/\r?\n/)
+      .map((label: string) => label.trim())
+      .filter(Boolean);
+    const labels: string[] = [];
+    for (const label of splitLabels) {
+      if (label === '/' && labels.length) labels[labels.length - 1] += ' /';
+      else if (labels.length && labels[labels.length - 1].endsWith('/')) labels[labels.length - 1] += ` ${label}`;
+      else labels.push(label);
+    }
+
+    // Avoid converting arbitrary ChatGPT SVG styles into a guessed diagram.
+    if (labels.length < 2 || !/waterfall/i.test(text.slice(0, text.indexOf(artifactLine)))) return artifactLine;
+
+    const nodes = labels.map((label, i) => `  W${i}["${label.replace(/"/g, '\\\"')}"]`);
+    const edges = labels.slice(1).map((_, i) => `  W${i} --> W${i + 1}`);
+    return `${indent}\`\`\`mermaid\nflowchart TD\n${[...nodes, ...edges].join('\n')}\n\`\`\``;
+  });
+
   // Side-by-side columns: `::: columns` ... `|||` (separator) ... `:::`.
   // Emit flex divs with blank lines around each cell so the inner markdown
   // (including ```mermaid blocks) is still parsed by react-markdown.
@@ -1371,6 +1402,12 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                   return <MermaidDiagram chart={codeContent} theme={theme} />;
                 }
 
+                // ChatGPT can copy the Mermaid source under this language name.
+                // The rendered SVG form is handled by the `svg` renderer below.
+                if (language === 'chatgpt-mermaid') {
+                  return <MermaidDiagram chart={codeContent} theme={theme} />;
+                }
+
                 if (language === 'diagram') {
                   return <DiagramBlock source={codeContent} theme={theme} />;
                 }
@@ -1421,6 +1458,16 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                     </SyntaxHighlighter>
                   </div>
                 );
+              },
+              // ChatGPT's rendered diagrams are SVGs with styles scoped to an
+              // id such as `chatgpt-mermaid-_r_km_`. Keep the whole diagram as
+              // an atomic pagination/export block and let its embedded CSS work.
+              svg: ({ children, ...props }: any) => {
+                const isChatGptMermaid = String(props.id || '').startsWith('chatgpt-mermaid-');
+                const svgElement = <svg {...props}>{children}</svg>;
+                return isChatGptMermaid ? (
+                  <div className="mermaid-container chatgpt-mermaid-container">{svgElement}</div>
+                ) : svgElement;
               },
               hr: () => !ignoreHr ? <hr className="my-10 border-gray-200" style={{ borderColor: theme.colors.border }} /> : null
             }}
