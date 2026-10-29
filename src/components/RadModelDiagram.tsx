@@ -1,7 +1,11 @@
 import React from 'react';
 import { AppTheme } from '../types';
+import { getDiagramEdgeColor } from '../diagrams/colors';
 
-const RadModelDiagram: React.FC<{ theme: AppTheme }> = ({ theme }) => (
+const RadModelDiagram: React.FC<{ theme: AppTheme }> = ({ theme }) => {
+  const edgeColor = getDiagramEdgeColor(theme.isDark);
+
+  return (
   <div
     className="mermaid-container my-6 w-full overflow-hidden rounded-3xl p-4"
     style={{
@@ -16,19 +20,24 @@ const RadModelDiagram: React.FC<{ theme: AppTheme }> = ({ theme }) => (
       xmlns="http://www.w3.org/2000/svg"
       style={{ display: 'block', width: '100%', maxWidth: '100%', height: 'auto', maxHeight: 680 }}
     >
-      <defs>
-        <marker id="rad-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#b0b0b0" />
-        </marker>
-      </defs>
+      <g fill="none" stroke={edgeColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M608 173 V237" />
+        <path d="M345 323 V347 H756 V363" />
+        {/* Construction iterates directly with User Design. The Improvements
+            pill sits over the middle of this dashed route in the reference. */}
+        <path d="M656 173 V221 H803 V363" strokeDasharray="4 4" />
+        <path d="M849 373 V198 Q849 188 839 188 H714 Q704 188 704 178 V183" />
+        <path d="M680 411 H700" strokeDasharray="3 3" />
+      </g>
 
-      <g fill="none" stroke="#b0b0b0" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M608 173 V237" markerEnd="url(#rad-arrow)" />
-        <path d="M345 323 V347 H756 V373" markerEnd="url(#rad-arrow)" />
-        <path d="M656 173 V221 H803 V269" strokeDasharray="4 4" markerEnd="url(#rad-arrow)" />
-        <path d="M803 303 V373" strokeDasharray="4 4" markerEnd="url(#rad-arrow)" />
-        <path d="M849 373 V198 Q849 188 839 188 H714 Q704 188 704 178 V173" markerEnd="url(#rad-arrow)" />
-        <path d="M680 411 H710" strokeDasharray="3 3" markerEnd="url(#rad-arrow)" />
+      {/* Filled arrowheads stay legible when the diagram is scaled down in the
+          preview and remain part of the SVG when it is paginated or exported. */}
+      <g fill={edgeColor} stroke={edgeColor} strokeWidth="1" strokeLinejoin="round">
+        <path d="M608 237 L600 223 L616 223 Z" />
+        <path d="M756 363 L748 349 L764 349 Z" />
+        <path d="M803 363 L795 349 L811 349 Z" />
+        <path d="M704 183 L696 197 L712 197 Z" />
+        <path d="M700 411 L686 403 L686 419 Z" />
       </g>
 
       <g fontFamily="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" fontSize="16" fontWeight="600" textAnchor="middle" fill="#99ceff">
@@ -54,6 +63,7 @@ const RadModelDiagram: React.FC<{ theme: AppTheme }> = ({ theme }) => (
       </g>
     </svg>
   </div>
-);
+  );
+};
 
 export default RadModelDiagram;

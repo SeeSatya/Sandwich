@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 import { AppTheme } from '../types';
+import { getDiagramEdgeColor } from '../diagrams/colors';
 
 interface MermaidDiagramProps {
   chart: string;
@@ -12,6 +13,7 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const edgeColor = getDiagramEdgeColor(theme.isDark);
 
   useEffect(() => {
     // Generate a colorful mermaid theme configuration with proper text contrast
@@ -56,7 +58,7 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
         tertiaryBorderColor: theme.colors.border || '#e5e7eb',
 
         // Line and edge styling
-        lineColor: theme.colors.secondary || '#6b7280',
+        lineColor: edgeColor,
         edgeLabelBackground: theme.isDark ? theme.colors.background : '#ffffff',
 
         // Node backgrounds
@@ -85,11 +87,11 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
           xAxisLabelColor: textColor,
           xAxisTitleColor: textColor,
           xAxisTickColor: textColor,
-          xAxisLineColor: theme.colors.secondary || '#6b7280',
+          xAxisLineColor: edgeColor,
           yAxisLabelColor: textColor,
           yAxisTitleColor: textColor,
           yAxisTickColor: textColor,
-          yAxisLineColor: theme.colors.secondary || '#6b7280',
+          yAxisLineColor: edgeColor,
           plotColorPalette: palette.join(','),
         },
 
@@ -145,10 +147,15 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
       const host = document.getElementById(`d${id}`) as HTMLElement | null;
       if (!host) return;
       host.style.setProperty('position', 'fixed', 'important');
-      host.style.setProperty('left', '-10000px', 'important');
+      // Keep the host in the viewport so Mermaid can measure HTML labels in
+      // its foreignObjects. `visibility:hidden` / moving it offscreen makes
+      // those labels measure as 0×0 in some browsers. Opacity hides the host
+      // visually while fixed positioning keeps it out of document flow.
+      host.style.setProperty('left', '0', 'important');
       host.style.setProperty('top', '0', 'important');
-      host.style.setProperty('visibility', 'hidden', 'important');
+      host.style.setProperty('opacity', '0', 'important');
       host.style.setProperty('pointer-events', 'none', 'important');
+      host.style.setProperty('z-index', '-1', 'important');
     };
 
     const removeMeasurementHost = () => {

@@ -3,6 +3,7 @@ import { generatePdf } from './services/pdfService';
 import { exportDocx } from './docxExport';
 import MarkdownPreview from './components/MarkdownPreview';
 import { AppTheme, DEFAULT_THEME, THEME_PRESETS } from './types';
+import { getChatGptDiagramPaste } from './diagrams/chatgptClipboard';
 import {
   DocumentTextIcon,
   DocumentArrowDownIcon,
@@ -592,6 +593,20 @@ function App() {
                   className="flex-1 w-full p-6 md:p-8 outline-none resize-none font-mono text-sm leading-relaxed text-docit-text-muted bg-docit-bg-deep/85 custom-scrollbar placeholder:text-docit-text-tertiary"
                   value={markdown}
                   onChange={(e) => setMarkdown(e.target.value)}
+                  onPaste={(event) => {
+                    const diagram = getChatGptDiagramPaste(event.clipboardData.getData('text/html'), theme.isDark);
+                    if (!diagram) return;
+
+                    event.preventDefault();
+                    const textarea = event.currentTarget;
+                    const start = textarea.selectionStart;
+                    const end = textarea.selectionEnd;
+                    const before = textarea.value.slice(0, start);
+                    const after = textarea.value.slice(end);
+                    const insertion = `${before && !before.endsWith('\n') ? '\n\n' : ''}${diagram}${after && !after.startsWith('\n') ? '\n\n' : ''}`;
+                    textarea.setRangeText(insertion, start, end, 'end');
+                    setMarkdown(textarea.value);
+                  }}
                   placeholder="Type your markdown here..."
                   spellCheck={false}
                 />

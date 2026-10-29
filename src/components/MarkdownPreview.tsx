@@ -20,6 +20,7 @@ import { AppTheme } from '../types';
 import MermaidDiagram from './MermaidDiagram';
 import RadModelDiagram from './RadModelDiagram';
 import DiagramBlock from './DiagramBlock';
+import { getDiagramEdgeColor } from '../diagrams/colors';
 
 interface MarkdownPreviewProps {
   content: string;
@@ -38,8 +39,9 @@ interface MarkdownPreviewProps {
   highlightStyle: string;
 }
 
-export const preprocessMarkdown = (text: string): string => {
+export const preprocessMarkdown = (text: string, theme?: AppTheme): string => {
   if (!text) return '';
+  const diagramEdgeColor = getDiagramEdgeColor(theme?.isDark ?? true);
 
   // remark-math uses `$` / `$$` delimiters. Accept the common LaTeX
   // `\(...\)` and `\[...\]` forms too. Use inline delimiters for `\[...\]`
@@ -84,12 +86,19 @@ export const preprocessMarkdown = (text: string): string => {
     }
 
     const precedingText = text.slice(0, text.indexOf(artifactLine));
-    if (labels.length < 2) return artifactLine;
+    if (!labels.length) {
+      return `${indent}> ChatGPT copied this diagram without its node labels. Paste it directly from ChatGPT or provide Mermaid source to preserve the diagram.`;
+    }
 
     const radStages = ['Requirements Planning', 'User Design', 'Construction', 'Cutover', 'User Feedback', 'Improvements'];
     const isRadDiagram = /RAD Model/i.test(precedingText) && radStages.every(stage =>
       labels.some(label => label.toLowerCase() === stage.toLowerCase())
     );
+    const agileStages = ['Planning', 'Design', 'Development', 'Testing', 'Release', 'Customer Feedback'];
+    const isAgileDiagram = /Agile Process/i.test(precedingText) && agileStages.every(stage =>
+      labels.some(label => label.toLowerCase() === stage.toLowerCase())
+    );
+    const isSpiralDiagram = /Spiral Model/i.test(precedingText);
 
     let chart: string;
     if (isRadDiagram) {
@@ -124,14 +133,46 @@ export const preprocessMarkdown = (text: string): string => {
         '  classDef feedback fill:#000e1a,stroke:#1a3e5f,color:#99ceff,stroke-width:1px',
         '  class C,CUT,RP,UD phase',
         '  class IMP,UF feedback',
-        '  linkStyle default stroke:#afafaf,stroke-width:1px',
+        `  linkStyle default stroke:${diagramEdgeColor},stroke-width:1px`,
       ].join('\n');
-    } else if (/waterfall/i.test(precedingText)) {
-      const nodes = labels.map((label, i) => `  W${i}["${label.replace(/"/g, '\\\"')}"]`);
-      const edges = labels.slice(1).map((_, i) => `  W${i} --> W${i + 1}`);
-      chart = `flowchart TD\n${[...nodes, ...edges].join('\n')}`;
+    } else if (isAgileDiagram) {
+      // The copied ChatGPT artifact retains labels and styling, but not its
+      // SVG edge paths. Reconstruct this known Agile cycle from the heading
+      // and labels: work proceeds through release, then customer feedback
+      // returns to planning for the next iteration.
+      const ids = ['PLAN', 'DESIGN', 'DEV', 'TEST', 'RELEASE', 'FEEDBACK'];
+      const nodeLines = agileStages.map((label, i) => {
+        const escaped = label.replace(/"/g, '\\"');
+        const shape = i === agileStages.length - 1 ? `(["${escaped}"])` : `["${escaped}"]`;
+        return `  ${ids[i]}${shape}`;
+      });
+      const flowLines = ids.slice(1).map((id, i) => `  ${ids[i]} --> ${id}`);
+      chart = [
+        'flowchart LR',
+        ...nodeLines,
+        ...flowLines,
+        '  FEEDBACK -.-> PLAN',
+        '  classDef agilePhase fill:#00284d,stroke:#1f4e94,color:#99ceff,stroke-width:1px,rx:16px,ry:16px',
+        '  classDef agileFeedback fill:#000e1a,stroke:#1a3e5f,color:#99ceff,stroke-width:1px',
+        '  class PLAN,DESIGN,DEV,TEST,RELEASE agilePhase',
+        '  class FEEDBACK agileFeedback',
+        `  linkStyle default stroke:${diagramEdgeColor},stroke-width:1px`,
+      ].join('\n');
     } else {
-      return artifactLine;
+      // Plain-text copies of ChatGPT diagrams often retain CSS and visible
+      // node labels but omit the SVG edge paths. Don't leave that CSS as prose
+      // for every unrecognized model: render the available labels as a useful
+      // Mermaid flow. Spiral models are iterative, so close their phases into
+      // a feedback loop; waterfall phases flow top to bottom.
+      const ids = labels.map((_label, index) => `PHASE${index + 1}`);
+      const safeLabel = (label: string) => label.replace(/["\\]/g, '\\$&').replace(/[\r\n]+/g, ' ');
+      const direction = /waterfall/i.test(precedingText) ? 'TD' : 'LR';
+      const nodes = labels.map((label, index) => `  ${ids[index]}["${safeLabel(label)}"]`);
+      const edges = ids.slice(1).map((id, index) => `  ${ids[index]} --> ${id}`);
+      if (isSpiralDiagram && ids.length > 1) {
+        edges.push(`  ${ids[ids.length - 1]} -.-> ${ids[0]}`);
+      }
+      chart = `flowchart ${direction}\n${[...nodes, ...edges].join('\n')}`;
     }
 
     const language = isRadDiagram ? 'chatgpt-rad' : 'mermaid';
@@ -348,8 +389,8 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
   const [scale, setScale] = useState<number>(1);
 
   const preprocessedContent = React.useMemo(() => {
-    return preprocessMarkdown(content);
-  }, [content]);
+    return preprocessMarkdown(content, theme);
+  }, [content, theme]);
 
   useEffect(() => {
     const updateScale = () => {
@@ -1465,6 +1506,22 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                   return <MermaidDiagram chart={codeContent} theme={theme} />;
                 }
 
+                if (language === 'chatgpt-svg') {
+                  const svgBase64 = codeContent.trim();
+                  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(svgBase64)) {
+                    return <div className="my-4 text-sm" style={{ color: theme.colors.secondary }}>Invalid ChatGPT diagram clipboard data.</div>;
+                  }
+                  return (
+                    <div className="mermaid-container my-6 w-full overflow-hidden p-4 rounded-3xl" style={{ backgroundColor: theme.colors.codeBackground, border: `1px solid ${theme.colors.border}` }}>
+                      <img
+                        src={`data:image/svg+xml;base64,${svgBase64}`}
+                        alt="ChatGPT diagram"
+                        className="block w-full max-w-full h-auto max-h-[680px] object-contain mx-auto"
+                      />
+                    </div>
+                  );
+                }
+
                 if (language === 'diagram') {
                   return <DiagramBlock source={codeContent} theme={theme} />;
                 }
@@ -1523,7 +1580,22 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                 const isChatGptMermaid = String(props.id || '').startsWith('chatgpt-mermaid-');
                 const svgElement = <svg {...props}>{children}</svg>;
                 return isChatGptMermaid ? (
-                  <div className="mermaid-container chatgpt-mermaid-container">{svgElement}</div>
+                  <div className="mermaid-container chatgpt-mermaid-container">
+                    {svgElement}
+                    <style>{`
+                      .chatgpt-mermaid-container .edgePath .path,
+                      .chatgpt-mermaid-container .flowchart-link,
+                      .chatgpt-mermaid-container .messageLine0,
+                      .chatgpt-mermaid-container .messageLine1 {
+                        stroke: ${getDiagramEdgeColor(theme.isDark)} !important;
+                      }
+                      .chatgpt-mermaid-container .marker,
+                      .chatgpt-mermaid-container .arrowheadPath {
+                        fill: ${getDiagramEdgeColor(theme.isDark)} !important;
+                        stroke: ${getDiagramEdgeColor(theme.isDark)} !important;
+                      }
+                    `}</style>
+                  </div>
                 ) : svgElement;
               },
               hr: () => !ignoreHr ? <hr className="my-10 border-gray-200" style={{ borderColor: theme.colors.border }} /> : null

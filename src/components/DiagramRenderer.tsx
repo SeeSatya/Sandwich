@@ -8,6 +8,7 @@ import {
   getDiagramTypeDefaults,
 } from '../diagrams';
 import { AppTheme } from '../types';
+import { getDiagramEdgeColor } from '../diagrams/colors';
 
 interface DiagramRendererProps {
   data: DiagramDefinition;
@@ -286,7 +287,7 @@ const DiagramRenderer: React.FC<DiagramRendererProps> = ({ data, theme }) => {
   }, [layout.nodes]);
 
   const markerId = React.useId().replace(/:/g, '');
-  const edgeColor = theme.colors.secondary || theme.colors.primary;
+  const edgeColor = getDiagramEdgeColor(theme.isDark);
 
   return (
     <div className="diagram-svg-renderer w-full overflow-hidden">
