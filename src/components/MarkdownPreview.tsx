@@ -367,6 +367,19 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
     }
   };
 
+  // Academic Report has asymmetric, fixed margins. Keep these values in one
+  // place so the source page, measured pages, rendered pages and print pages
+  // all have exactly the same usable content box.
+  const pagePaddingTop = theme.name === 'Academic Report' ? '25.4mm' : getVerticalPadding();
+  const pagePaddingRight = theme.name === 'Academic Report' ? '25.4mm' : getHorizontalPadding();
+  const pagePaddingBottom = theme.name === 'Academic Report' ? '25.4mm' : getVerticalPadding();
+  const pagePaddingLeft = theme.name === 'Academic Report' ? '38.1mm' : getHorizontalPadding();
+  const paginationThemeClass = theme.name === 'Pixelize'
+    ? 'theme-pixelize theme-pixelize-print'
+    : theme.name === 'Academic Report'
+      ? 'theme-academic'
+      : '';
+
   // Resolve highlighter style object
   // A "light" style (light bg, dark tokens) on a dark background = invisible text.
   // Override to a dark style whenever the effective background will be dark.
@@ -427,574 +440,580 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
 
     const source = sourceRef.current;
     const target = targetRef.current;
-
-    // Guard against redundant rebuilds: repagination triggered by the scrollbar
-    // appearing/disappearing (not by a content change) produces the identical
-    // layout signature, so we skip the rebuild entirely. This breaks the
-    // paginate → height-change → scrollbar-toggle → resize → repaginate loop
-    // that made the preview "dance".
+    let cancelled = false;
+    let debounceTimeout: ReturnType<typeof setTimeout> | null = null;
+    let runVersion = 0;
     let lastSignature: string | null = null;
 
-    const paginate = () => {
-      // Constants for A4 @ 96 DPI
-      const PPI = 96;
-      const MM_TO_PX = PPI / 25.4;
-      const PAGE_HEIGHT_PX = 297 * MM_TO_PX;
+    interface MeasuredPage {
+      page: HTMLDivElement;
+      content: HTMLDivElement;
+      pageNum: number;
+    }
 
-      // Calculate margins in pixels
-      const parseMm = (val: string) => parseFloat(val.replace('mm', ''));
-      const marginVertMm = parseMm(getVerticalPadding());
-      const marginVertPx = marginVertMm * MM_TO_PX;
+    const stripIds = (root: HTMLElement) => {
+      root.removeAttribute('id');
+      root.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+    };
 
-      // Content Height
-      // Leave a small safety buffer so rounding/font-metric differences
-      // do not clip the final line at the bottom of a page.
-      const PAGE_SAFETY_PX = 24;
-      const MAX_CONTENT_HEIGHT = PAGE_HEIGHT_PX - (marginVertPx * 2) - PAGE_SAFETY_PX;
+    const setMargin = (node: HTMLElement, side: 'top' | 'bottom', value: string) => {
+      node.style.setProperty(`margin-${side}`, value, 'important');
+    };
 
-      // Measure each rendered line's offset (relative to the element's top) and
-      // the line height, using the Range API. Text nodes only — inline elements
-      // (<strong>, <a>, …) share their parent's line box, so walking text nodes
-      // and grouping by rounded y-offset reconstructs every line. Returns null
-      // for empty elements so callers fall back to treating the block as atomic.
-      const measureLines = (el: HTMLElement): { lines: number[]; lineHeight: number } | null => {
-        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-        const offsets = new Set<number>();
-        const range = document.createRange();
-        let node = walker.nextNode();
-        let maxBottom = 0;
-        while (node) {
-          if (node.textContent && node.textContent.trim().length > 0) {
-            range.selectNodeContents(node);
-            const rects = range.getClientRects();
-            const elTop = el.getBoundingClientRect().top;
-            for (let i = 0; i < rects.length; i++) {
-              const r = rects[i];
-              if (r.height === 0) continue;
-              offsets.add(Math.round(r.top - elTop));
-              if (r.bottom - elTop > maxBottom) maxBottom = r.bottom - elTop;
-            }
-          }
-          node = walker.nextNode();
+    const textNodes = (root: HTMLElement): Text[] => {
+      const result: Text[] = [];
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node) {
+        result.push(node as Text);
+        node = walker.nextNode();
+      }
+      return result;
+    };
+
+    const cloneTextRange = (element: HTMLElement, start: number, end: number): HTMLElement => {
+      const clone = element.cloneNode(false) as HTMLElement;
+      const nodes = textNodes(element);
+      if (nodes.length === 0) return element.cloneNode(true) as HTMLElement;
+
+      const locate = (offset: number): { node: Text; offset: number } => {
+        let traversed = 0;
+        for (const node of nodes) {
+          const next = traversed + node.data.length;
+          if (offset <= next) return { node, offset: Math.max(0, offset - traversed) };
+          traversed = next;
         }
-        const lines = Array.from(offsets).sort((a, b) => a - b);
-        if (lines.length === 0) return null;
-        const lineHeight = lines.length > 1 ? lines[1] - lines[0] : maxBottom;
-        return { lines, lineHeight };
+        const last = nodes[nodes.length - 1];
+        return { node: last, offset: last.data.length };
       };
 
-      const children = Array.from(source.children) as HTMLElement[];
-      if (children.length === 0) return;
+      const startPoint = locate(start);
+      const endPoint = locate(end);
+      const range = document.createRange();
+      range.setStart(startPoint.node, startPoint.offset);
+      range.setEnd(endPoint.node, endPoint.offset);
+      clone.appendChild(range.cloneContents());
+      stripIds(clone);
+      return clone;
+    };
 
-      // Single pass reading of elements' layout in source
-      const sourceRect = source.getBoundingClientRect();
-      const layouts = children.map(child => {
-        const isHeader = /^H[1-6]$/.test(child.tagName);
-        const isDiagram = child.classList.contains('mermaid-container') ||
-          child.classList.contains('diagram-container') ||
-          child.querySelector('.mermaid-container, .diagram-container') !== null;
-        const isCodeBlock = child.tagName === 'PRE' ||
-          child.classList.contains('code-block-wrapper') ||
-          child.querySelector('.code-block-wrapper') !== null;
-        const isMathBlock = child.matches('.katex-display') ||
-          child.querySelector('.katex-display') !== null;
-        const isList = child.tagName === 'OL' || child.tagName === 'UL';
-
-        const childRect = child.getBoundingClientRect();
-        const childStyle = window.getComputedStyle(child);
-        const marginTop = parseFloat(childStyle.marginTop || '0') || 0;
-        const marginBottom = parseFloat(childStyle.marginBottom || '0') || 0;
-        const extraVerticalSpace = marginTop + marginBottom;
-        const absTop = childRect.top - sourceRect.top;
-
-        let listItems: any[] = [];
-        if (isList) {
-          listItems = Array.from(child.children).map(li => {
-            const liHtml = li as HTMLElement;
-            const liRect = liHtml.getBoundingClientRect();
-            const liStyle = window.getComputedStyle(liHtml);
-            const liMarginTop = parseFloat(liStyle.marginTop || '0') || 0;
-            const liMarginBottom = parseFloat(liStyle.marginBottom || '0') || 0;
-            const liAbsTop = liRect.top - sourceRect.top;
-            return {
-              element: liHtml,
-              top: liAbsTop,
-              // Content bottom (no margin) used for fit checks — a li's
-              // trailing margin should not evict it from space where a
-              // plain text line of the same height would fit.
-              contentBottom: liAbsTop + liRect.height,
-              bottom: liAbsTop + liRect.height + liMarginTop + liMarginBottom,
-              height: liRect.height + liMarginTop + liMarginBottom
-            };
-          });
-        }
-
-        return {
-          element: child,
-          top: absTop,
-          bottom: absTop + childRect.height + extraVerticalSpace,
-          height: childRect.height + extraVerticalSpace,
-          tagName: child.tagName,
-          className: child.className,
-          isHeader,
-          isDiagram,
-          isCodeBlock,
-          isMathBlock,
-          isList,
-          listItems
-        };
+    const splitBoundaries = (element: HTMLElement): number[] => {
+      const text = element.textContent || '';
+      const boundaries = new Set<number>();
+      const wordBoundary = /(?:\s+|[.,!?;:\u2026](?=\s|$))/gu;
+      let match: RegExpExecArray | null;
+      while ((match = wordBoundary.exec(text)) !== null) {
+        boundaries.add(match.index + match[0].length);
+      }
+      let offset = 0;
+      textNodes(element).forEach(node => {
+        offset += node.data.length;
+        boundaries.add(offset);
       });
+      boundaries.add(text.length);
+      return Array.from(boundaries).filter(value => value > 0).sort((a, b) => a - b);
+    };
 
-      interface PageItem {
-        type: 'full' | 'list-split' | 'split-chunk';
-        element: HTMLElement;
-        tagName?: string;
-        className?: string;
-        start?: number;
-        items?: HTMLElement[];
-        chunkHeight?: number;
-        offset?: number;
-        isFirst?: boolean;
-        isLast?: boolean;
-        marginTop?: string;
-        marginBottom?: string;
-        /** scale factor for shrink-to-fit visual blocks (diagrams, code) */
-        fitScale?: number;
+    const graphemeBoundaries = (element: HTMLElement): number[] => {
+      const text = element.textContent || '';
+      const boundaries: number[] = [];
+      const Segmenter = (Intl as any).Segmenter;
+      if (Segmenter) {
+        const segmenter = new Segmenter(undefined, { granularity: 'grapheme' });
+        for (const part of segmenter.segment(text)) {
+          boundaries.push(part.index + part.segment.length);
+        }
+        return boundaries;
+      }
+      let offset = 0;
+      // Array.from advances by Unicode code point, so the compatibility path
+      // still never cuts a surrogate pair in half.
+      Array.from(text).forEach(character => {
+        offset += character.length;
+        boundaries.push(offset);
+      });
+      return boundaries;
+    };
+
+    const addPageDecoration = (page: HTMLElement, pageNum: number) => {
+      if (theme.name === 'Night Sky') {
+        const track = (side: 'left' | 'right') => {
+          const host = document.createElement('div');
+          host.innerHTML = `<svg class="page-star-track ${side}" viewBox="0 0 40 1000" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <line x1="20" y1="40" x2="20" y2="960" stroke="#818CF8" stroke-width="0.6" opacity="0.35"/>
+            <circle cx="20" cy="120" r="2.2" fill="#E2E8F0" opacity="0.5"/>
+            <circle cx="20" cy="360" r="1.4" fill="#818CF8" opacity="0.5"/>
+            <circle cx="20" cy="640" r="2.2" fill="#E2E8F0" opacity="0.45"/>
+            <circle cx="20" cy="880" r="1.4" fill="#818CF8" opacity="0.5"/>
+            <line x1="20" y1="120" x2="20" y2="360" stroke="#818CF8" stroke-width="0.5" opacity="0.25"/>
+            <line x1="20" y1="360" x2="20" y2="640" stroke="#818CF8" stroke-width="0.5" opacity="0.25"/>
+          </svg>`;
+          return host.firstElementChild as HTMLElement;
+        };
+        page.appendChild(track('left'));
+        page.appendChild(track('right'));
+      } else if (theme.name === 'Pixelize') {
+        const burst = (corner: 'tl' | 'tr' | 'bl' | 'br') => {
+          const host = document.createElement('div');
+          host.innerHTML = `<svg class="pixel-corner ${corner}" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="0" y="0" width="4" height="4" fill="${theme.colors.primary}" opacity="0.9"/>
+            <rect x="4" y="0" width="2" height="2" fill="${theme.colors.secondary}" opacity="0.7"/>
+            <rect x="0" y="4" width="2" height="2" fill="${theme.colors.secondary}" opacity="0.7"/>
+            <rect x="4" y="4" width="1.4" height="1.4" fill="${theme.colors.primary}" opacity="0.5"/>
+            <rect x="6" y="0" width="1.2" height="1.2" fill="${theme.colors.primary}" opacity="0.4"/>
+            <rect x="0" y="6" width="1.2" height="1.2" fill="${theme.colors.primary}" opacity="0.4"/>
+          </svg>`;
+          return host.firstElementChild as HTMLElement;
+        };
+        (['tl', 'tr', 'bl', 'br'] as const).forEach(corner => page.appendChild(burst(corner)));
       }
 
-      interface PageData {
-        pageNum: number;
-        items: PageItem[];
+      if (showPageNumbers && pageNum > 1) {
+        const pageNumber = document.createElement('div');
+        pageNumber.className = 'page-number';
+        pageNumber.textContent = String(pageNum);
+        pageNumber.style.cssText = `position:absolute;bottom:10mm;right:20mm;font-size:12px;opacity:.5;pointer-events:none;color:${theme.colors.text}`;
+        page.appendChild(pageNumber);
       }
+    };
 
-      const pagesData: PageData[] = [];
-      let currentPageNum = 1;
-      let currentPageStartY = 0;
-      let currentPageItems: PageItem[] = [];
+    const waitForStableLayout = async () => {
+      const fontReady = document.fonts?.ready ?? Promise.resolve();
+      const images = Array.from(source.querySelectorAll('img'));
+      const imageReady = images.map(image => {
+        if (image.complete) return image.decode?.().catch(() => undefined) ?? Promise.resolve();
+        return new Promise<void>(resolve => {
+          image.addEventListener('load', () => resolve(), { once: true });
+          image.addEventListener('error', () => resolve(), { once: true });
+        });
+      });
+      // Do not let a broken remote image block the whole document. Its later
+      // load/error or resize still schedules a fresh pagination pass.
+      await Promise.race([
+        Promise.all([fontReady, ...imageReady]),
+        new Promise<void>(resolve => setTimeout(resolve, 1500))
+      ]);
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    };
 
-      pagesData.push({ pageNum: currentPageNum, items: currentPageItems });
-
-      const createNewPage = (newStartY: number) => {
-        currentPageNum++;
-        currentPageStartY = newStartY;
-        currentPageItems = [];
-        pagesData.push({ pageNum: currentPageNum, items: currentPageItems });
-      };
-
-      // ---- Line-stream pagination ----
-      // Build a flat stream of lines: each line object carries a reference to
-      // its source block. Headers / code / diagrams become ONE multi-line
-      // "group" (unbreakable); lists and text blocks contribute one entry per
-      // rendered line (Range-measured). Pages are then packed greedily at
-      // line boundaries — no paragraph is ever left whole when only part of
-      // it fits, which is what produced the page-bottom gaps.
-
-      interface LineEntry {
-        block: any;           // layout record
-        kind: 'full' | 'line' | 'list-item';
-        offsetTop: number;    // px from the block's own top to this line's top
-        offsetBottom: number; // px from the block's top to this line's bottom
-        absTop: number;       // absolute top in the source document
-        absBottom: number;
-        listIndex?: number;   // for list items
-        liElement?: HTMLElement; // for list items
-      }
-
-      const lineStream: LineEntry[] = [];
-
-      for (const layout of layouts) {
-        if (layout.height === 0) continue;
-        const contentH = layout.element.getBoundingClientRect().height;
-
-        if (layout.isList && layout.listItems.length > 0) {
-          // Each list item is its own unbreakable group, rendered as a
-          // list-split so the <ol>/<ul> wrapper + numbering are preserved.
-          for (let li = 0; li < layout.listItems.length; li++) {
-            const item = layout.listItems[li];
-            lineStream.push({
-              block: layout, kind: 'list-item',
-              offsetTop: 0, offsetBottom: item.height,
-              absTop: item.top, absBottom: item.contentBottom,
-              listIndex: li, liElement: item.element
-            });
-          }
-        } else {
-          const atomic = layout.isHeader || layout.isDiagram || layout.isCodeBlock || layout.isMathBlock ||
-            !(layout.tagName === 'P' || layout.tagName === 'BLOCKQUOTE' ||
-              layout.tagName === 'DIV' || layout.tagName === 'SECTION');
-          const m = measureLines(layout.element);
-          // Blocks that contain non-text media (images, iframes, raw HTML
-          // render blocks) must never be sliced, even if their tag is P/DIV.
-          const hasMedia = layout.element.querySelector('img, iframe, video, .html-render-block, svg') !== null;
-          if (atomic || hasMedia || !m || m.lines.length === 0) {
-            lineStream.push({
-              block: layout, kind: 'full',
-              offsetTop: 0, offsetBottom: contentH,
-              absTop: layout.top, absBottom: layout.top + contentH
-            });
-          } else {
-            const offs = m.lines;
-            for (let k = 0; k < offs.length; k++) {
-              const oTop = offs[k];
-              const oBottom = (k + 1 < offs.length) ? offs[k + 1] : contentH;
-              lineStream.push({
-                block: layout, kind: 'line',
-                offsetTop: oTop, offsetBottom: oBottom,
-                absTop: layout.top + oTop, absBottom: layout.top + oBottom
-              });
-            }
-          }
-        }
-      }
-
-      // Order everything by position (lists interleave their items)
-      lineStream.sort((a, b) => a.absTop - b.absTop);
-
-      // Pack entries into pages. Entry kinds:
-      //  'list-item' → grouped into list-split runs (preserves <ol>/<ul> + numbering)
-      //  'full'      → atomic block (header / code / diagram / media / short text)
-      //  'line'      → one measured line of a splittable text block
-      let lineIdx = 0;
-      const total = lineStream.length;
-
-      while (lineIdx < total) {
-        const first = lineStream[lineIdx];
-        if (currentPageItems.length === 0) {
-          // Adopt the first entry's absolute top as this page's content start.
-          currentPageStartY = first.absTop;
-          currentPageItems = pagesData[pagesData.length - 1].items;
-        }
-        const avail = MAX_CONTENT_HEIGHT - (first.absTop - currentPageStartY);
-
-        // ---- list item run ----
-        if (first.kind === 'list-item') {
-          const block = first.block;
-          const fit: LineEntry[] = [];
-          let k = lineIdx;
-          while (k < total && lineStream[k].kind === 'list-item' && lineStream[k].block === block &&
-                 (lineStream[k].absBottom - currentPageStartY) <= MAX_CONTENT_HEIGHT + 0.5) {
-            fit.push(lineStream[k]);
-            k++;
-          }
-          if (fit.length > 0) {
-            currentPageItems.push({
-              type: 'list-split',
-              element: block.element,
-              tagName: block.tagName,
-              className: block.className,
-              start: fit[0].listIndex + 1,
-              items: fit.map(f => f.liElement as HTMLElement)
-            });
-            lineIdx = k;
-            // More items of the same list remain → next page
-            if (lineIdx < total && lineStream[lineIdx].kind === 'list-item' && lineStream[lineIdx].block === block) {
-              createNewPage(lineStream[lineIdx].absTop);
-            }
-            continue;
-          }
-          // none fit → next page (force-place one if page is empty)
-          if (currentPageItems.length === 0) {
-            currentPageItems.push({
-              type: 'list-split',
-              element: block.element,
-              tagName: block.tagName,
-              className: block.className,
-              start: first.listIndex + 1,
-              items: [first.liElement as HTMLElement]
-            });
-            lineIdx++;
-            createNewPage(lineIdx < total ? lineStream[lineIdx].absTop : first.absTop);
-            continue;
-          }
-          createNewPage(first.absTop);
-          continue;
-        }
-
-        // ---- atomic block ----
-        if (first.kind === 'full') {
-          const groupH = first.absBottom - first.absTop;
-          // Keep-with-next: a heading may not stand alone at the bottom of a
-          // page — it must have at least one line of what follows on the same
-          // page, otherwise the heading moves to the next page too.
-          if (first.block.isHeader && currentPageItems.length > 0) {
-            const next = lineStream[lineIdx + 1];
-            if (next) {
-              const headerBottom = first.absTop + (first.offsetBottom - first.offsetTop);
-              const headerFits = (headerBottom - currentPageStartY) <= MAX_CONTENT_HEIGHT + 0.5;
-              const nextLineFits = (next.absBottom - currentPageStartY) <= MAX_CONTENT_HEIGHT + 0.5;
-              if (headerFits && !nextLineFits) {
-                createNewPage(first.absTop);
-                continue;
-              }
-            }
-          }
-          if (groupH <= avail + 0.5) {
-            if (first.block.isDiagram || first.block.isCodeBlock) {
-              const fitRatio = avail / groupH;
-              if (fitRatio >= 0.55 && fitRatio < 1 && currentPageItems.length > 0) {
-                currentPageItems.push({ type: 'full', element: first.block.element, fitScale: fitRatio });
-                lineIdx++;
-                continue;
-              }
-            }
-            currentPageItems.push({ type: 'full', element: first.block.element });
-            lineIdx++;
-            continue;
-          }
-          // Doesn't fit → push to next page (unless page empty → force-place)
-          if (currentPageItems.length > 0) { createNewPage(first.absTop); continue; }
-          currentPageItems.push({ type: 'full', element: first.block.element });
-          lineIdx++;
-          continue;
-        }
-
-        // ---- text lines ----
-        const block = first.block;
-        let endIdx = lineIdx;
-        let chunkBottomAbs = first.absTop;
-        while (endIdx < total) {
-          const le = lineStream[endIdx];
-          if (le.block !== block || le.kind !== 'line') break;
-          if ((le.absBottom - currentPageStartY) <= MAX_CONTENT_HEIGHT + 0.5) {
-            chunkBottomAbs = le.absBottom;
-            endIdx++;
-          } else {
-            break;
-          }
-        }
-
-        if (endIdx > lineIdx) {
-          const offset = first.offsetTop;
-          const chunkHeight = chunkBottomAbs - first.absTop;
-          const isLastLine = endIdx >= total || lineStream[endIdx].block !== block || lineStream[endIdx].kind !== 'line';
-          currentPageItems.push({
-            type: 'split-chunk',
-            element: block.element,
-            chunkHeight,
-            offset,
-            isFirst: offset === 0,
-            isLast: isLastLine,
-            marginTop: block.element.style.marginTop,
-            marginBottom: block.element.style.marginBottom
-          });
-          lineIdx = endIdx;
-          if (lineIdx < total && lineStream[lineIdx].block === block && lineStream[lineIdx].kind === 'line') {
-            createNewPage(lineStream[lineIdx].absTop);
-          }
-          continue;
-        }
-        // Not even one line fits → new page (force-place one line if page empty)
-        if (currentPageItems.length === 0) {
-          currentPageItems.push({
-            type: 'split-chunk',
-            element: block.element,
-            chunkHeight: first.offsetBottom - first.offsetTop,
-            offset: first.offsetTop,
-            isFirst: first.offsetTop === 0,
-            isLast: false,
-            marginTop: block.element.style.marginTop,
-            marginBottom: block.element.style.marginBottom
-          });
-          lineIdx++;
-        }
-        createNewPage(lineIdx < total ? lineStream[lineIdx].absTop : first.absTop);
-      }
-
-      // Write Phase: Construct HTML in one go
-      // Signature covers the inputs that determine the page layout: each
-      // block's identity + geometry. Excluded: everything caused BY writing
-      // pages (scrollbar, container height). If the signature matches the last
-      // run, the rebuild is redundant → skip.
-      const signature = layouts
-        .map(l => `${l.tagName}:${l.top.toFixed(1)}:${l.bottom.toFixed(1)}:${l.height.toFixed(1)}`)
-        .join('|');
-      if (signature === lastSignature) {
+    const paginate = () => {
+      const children = Array.from(source.children) as HTMLElement[];
+      if (children.length === 0) {
+        target.replaceChildren();
         return;
       }
-      lastSignature = signature;
 
-      // Build the new page stack off-DOM, then swap it in once. Clearing and
-      // appending pages one at a time briefly collapses scrollHeight, making
-      // the preview scrollbar flash and resetting the user's scroll position.
-      const pageStack = document.createDocumentFragment();
-      const previousScrollTop = containerRef.current?.scrollTop ?? 0;
+      const sourceRect = source.getBoundingClientRect();
+      const signature = [
+        source.innerHTML,
+        sourceRect.width.toFixed(2),
+        sourceRect.height.toFixed(2),
+        document.fonts?.status || '',
+        ...children.map(child => {
+          const rect = child.getBoundingClientRect();
+          return `${child.tagName}:${rect.width.toFixed(2)}:${rect.height.toFixed(2)}:${child.scrollWidth}:${child.scrollHeight}`;
+        }),
+        ...Array.from(source.querySelectorAll('img')).map(image => `${image.currentSrc}:${image.naturalWidth}x${image.naturalHeight}`),
+      ].join('|');
+      if (signature === lastSignature) return;
 
-      pagesData.forEach(pageData => {
-        if (pageData.items.length === 0) return;
+      const measureHost = document.createElement('div');
+      measureHost.className = 'pagination-measure-host';
+      document.body.appendChild(measureHost);
 
+      const pages: MeasuredPage[] = [];
+      const createPage = (): MeasuredPage => {
         const page = document.createElement('div');
-        page.className = theme.name === 'Pixelize' ? 'page theme-pixelize' : 'page';
-        const wrapper = document.createElement('div');
-        // Match the hidden measurement container's typography context so the
-        // measured heights and the rendered heights stay in sync.
-        wrapper.className = 'page-content';
-        wrapper.style.height = '100%';
-        wrapper.style.position = 'relative';
-        wrapper.style.overflow = 'hidden';
-        page.appendChild(wrapper);
+        page.className = `page pagination-page ${paginationThemeClass}`.trim();
+        const pageContent = document.createElement('div');
+        pageContent.className = 'page-content';
+        page.appendChild(pageContent);
+        const result = { page, content: pageContent, pageNum: pages.length + 1 };
+        pages.push(result);
+        measureHost.appendChild(page);
+        return result;
+      };
 
-        // Theme signature marks (absolute + pointer-events:none ⇒ no effect
-        // on measurement or pagination). A signature is structural — a page
-        // frame or corner mark — not scattered decoration.
-        const addSignature = () => {
-          if (theme.name === 'Night Sky') {
-            // Refined constellation: a thin hairline down each margin with a
-            // few subtle junction points — reads as a deliberate frame, not
-            // scattered stickers.
-            const track = (side: 'left' | 'right') => {
-              const host = document.createElement('div');
-              host.innerHTML = `<svg class="page-star-track ${side}" viewBox="0 0 40 1000" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <line x1="20" y1="40" x2="20" y2="960" stroke="#818CF8" stroke-width="0.6" opacity="0.35"/>
-                <circle cx="20" cy="120" r="2.2" fill="#E2E8F0" opacity="0.5"/>
-                <circle cx="20" cy="360" r="1.4" fill="#818CF8" opacity="0.5"/>
-                <circle cx="20" cy="640" r="2.2" fill="#E2E8F0" opacity="0.45"/>
-                <circle cx="20" cy="880" r="1.4" fill="#818CF8" opacity="0.5"/>
-                <line x1="20" y1="120" x2="20" y2="360" stroke="#818CF8" stroke-width="0.5" opacity="0.25"/>
-                <line x1="20" y1="360" x2="20" y2="640" stroke="#818CF8" stroke-width="0.5" opacity="0.25"/>
-              </svg>`;
-              return host.firstElementChild as HTMLElement;
-            };
-            page.appendChild(track('left'));
-            page.appendChild(track('right'));
-          } else if (theme.name === 'Pixelize') {
-            // Pixel-burst corners: stepped squares in each corner
-            const burst = (corner: 'tl' | 'tr' | 'bl' | 'br') => {
-              const host = document.createElement('div');
-              host.innerHTML = `<svg class="pixel-corner ${corner}" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="0" y="0" width="4" height="4" fill="${theme.colors.primary}" opacity="0.9"/>
-                <rect x="4" y="0" width="2" height="2" fill="${theme.colors.secondary}" opacity="0.7"/>
-                <rect x="0" y="4" width="2" height="2" fill="${theme.colors.secondary}" opacity="0.7"/>
-                <rect x="4" y="4" width="1.4" height="1.4" fill="${theme.colors.primary}" opacity="0.5"/>
-                <rect x="6" y="0" width="1.2" height="1.2" fill="${theme.colors.primary}" opacity="0.4"/>
-                <rect x="0" y="6" width="1.2" height="1.2" fill="${theme.colors.primary}" opacity="0.4"/>
-              </svg>`;
-              return host.firstElementChild as HTMLElement;
-            };
-            (['tl', 'tr', 'bl', 'br'] as const).forEach(c => page.appendChild(burst(c)));
+      let currentPage = createPage();
+      const hasContent = () => currentPage.content.childElementCount > 0;
+      const newPage = () => { currentPage = createPage(); };
+      const fits = () => currentPage.content.scrollHeight <= currentPage.content.clientHeight;
+      const tryAppend = (node: HTMLElement): boolean => {
+        currentPage.content.appendChild(node);
+        if (fits()) return true;
+        node.remove();
+        return false;
+      };
+
+      const largestFittingBoundary = (
+        start: number,
+        boundaries: number[],
+        createFragment: (start: number, end: number) => HTMLElement
+      ): number => {
+        const candidates = boundaries.filter(value => value > start);
+        let low = 0;
+        let high = candidates.length - 1;
+        let best = start;
+        while (low <= high) {
+          const mid = Math.floor((low + high) / 2);
+          const end = candidates[mid];
+          const candidate = createFragment(start, end);
+          currentPage.content.appendChild(candidate);
+          const candidateFits = fits();
+          candidate.remove();
+          if (candidateFits) {
+            best = end;
+            low = mid + 1;
+          } else {
+            high = mid - 1;
           }
-        };
-        addSignature();
-
-        if (showPageNumbers && pageData.pageNum > 1) {
-          const pageNumDiv = document.createElement('div');
-          pageNumDiv.className = 'page-number';
-          pageNumDiv.innerText = `${pageData.pageNum}`;
-          pageNumDiv.style.position = 'absolute';
-          pageNumDiv.style.bottom = '10mm';
-          pageNumDiv.style.right = '20mm';
-          pageNumDiv.style.fontSize = '12px';
-          pageNumDiv.style.opacity = '0.5';
-          pageNumDiv.style.pointerEvents = 'none';
-          pageNumDiv.style.color = theme.colors.text;
-          page.appendChild(pageNumDiv);
         }
+        return best;
+      };
 
-        pageData.items.forEach(item => {
-          if (item.type === 'full') {
-            if (item.fitScale && item.fitScale < 1) {
-              // Shrink-to-fit: transform scales the block visually; the wrapper
-              // reserves the scaled height (and margin compensation) so the
-              // page box geometry stays truthful.
-              const scaleBox = document.createElement('div');
-              const fullH = item.element.getBoundingClientRect().height;
-              const scaledH = fullH * item.fitScale;
-              scaleBox.className = 'fit-scale-box';
-              scaleBox.style.height = `${scaledH}px`;
-              scaleBox.style.width = '100%';
-              scaleBox.style.overflow = 'hidden';
-              scaleBox.style.margin = '0 auto 1em auto';
-              scaleBox.style.position = 'relative';
-              const inner = item.element.cloneNode(true) as HTMLElement;
-              inner.style.transform = `scale(${item.fitScale})`;
-              inner.style.transformOrigin = 'top left';
-              inner.style.width = `${100 / item.fitScale}%`;
-              inner.style.margin = '0';
-              scaleBox.appendChild(inner);
-              wrapper.appendChild(scaleBox);
-            } else {
-              wrapper.appendChild(item.element.cloneNode(true));
-            }
-          } else if (item.type === 'list-split') {
-            const list = document.createElement(item.tagName || 'ul');
-            if (item.tagName === 'OL') {
-              list.setAttribute('start', String(item.start));
-            }
-            list.className = item.className || '';
-            item.items?.forEach(li => {
-              list.appendChild(li.cloneNode(true));
-            });
-            wrapper.appendChild(list);
-          } else if (item.type === 'split-chunk') {
-            const chunkWrapper = document.createElement('div');
-            chunkWrapper.style.height = `${item.chunkHeight}px`;
-            chunkWrapper.style.overflow = 'hidden';
-            chunkWrapper.style.margin = '0';
-            chunkWrapper.style.width = '100%';
-            chunkWrapper.className = 'split-chunk-wrapper';
+      const paginateFragments = (
+        total: number,
+        boundaries: number[],
+        createFragment: (start: number, end: number) => HTMLElement,
+        fallbackBoundaries: number[] = boundaries
+      ) => {
+        let start = 0;
+        while (start < total) {
+          const wholeRemainder = createFragment(start, total);
+          if (tryAppend(wholeRemainder)) break;
 
-            if (item.isFirst) {
-              chunkWrapper.style.marginTop = item.marginTop || '0';
-            }
-            const chunkContent = item.element.cloneNode(true) as HTMLElement;
-            // Inline styles beat the stylesheet's margin rules (incl. the
-            // `!important` heading margins and `:first-child` margin-top:0), so
-            // the negative top margin reliably shifts the slice into view.
-            chunkContent.style.margin = '0';
-            chunkContent.style.marginTop = `-${item.offset}px`;
-            chunkContent.style.marginBottom = '0';
+          let end = largestFittingBoundary(start, boundaries, createFragment);
+          if (end === start && hasContent()) {
+            newPage();
+            continue;
+          }
+          if (end === start) {
+            // A single unusually long token can exceed the word-boundary set.
+            // Fall back to actual text-node character boundaries on a fresh page.
+            end = largestFittingBoundary(start, fallbackBoundaries, createFragment);
+          }
+          if (end === start) end = Math.min(total, start + 1);
+          currentPage.content.appendChild(createFragment(start, end));
+          start = end;
+          if (start < total) newPage();
+        }
+      };
 
-            chunkWrapper.appendChild(chunkContent);
-            wrapper.appendChild(chunkWrapper);
+      const createTextFragment = (element: HTMLElement, start: number, end: number): HTMLElement => {
+        const total = element.textContent?.length ?? 0;
+        const fragment = cloneTextRange(element, start, end);
+        fragment.classList.add('pagination-text-fragment');
+        if (start > 0) {
+          fragment.classList.add('pagination-fragment-continuation');
+          setMargin(fragment, 'top', '0');
+        }
+        if (end < total) setMargin(fragment, 'bottom', '0');
+        return fragment;
+      };
 
-            if (item.isLast) {
-              chunkWrapper.style.marginBottom = item.marginBottom || '0';
+      const paginateText = (element: HTMLElement) => {
+        const total = element.textContent?.length ?? 0;
+        if (total === 0) {
+          appendAtomic(element, false);
+          return;
+        }
+        paginateFragments(
+          total,
+          splitBoundaries(element),
+          (start, end) => createTextFragment(element, start, end),
+          graphemeBoundaries(element)
+        );
+      };
+
+      const paginateList = (list: HTMLElement) => {
+        const items = Array.from(list.children).filter(child => child.tagName === 'LI') as HTMLElement[];
+        const ordered = list.tagName === 'OL';
+        const listStart = ordered ? Number(list.getAttribute('start') || 1) : 1;
+
+        items.forEach((item, itemIndex) => {
+          const total = item.textContent?.length ?? 0;
+          const number = listStart + itemIndex;
+          const createListFragment = (start: number, end: number) => {
+            const listFragment = list.cloneNode(false) as HTMLElement;
+            stripIds(listFragment);
+            listFragment.classList.add('pagination-list-fragment');
+            if (itemIndex > 0 || start > 0) setMargin(listFragment, 'top', '0');
+            if (itemIndex < items.length - 1 || end < total) setMargin(listFragment, 'bottom', '0');
+            if (ordered) listFragment.setAttribute('start', String(number));
+
+            const itemFragment = total > 0 ? cloneTextRange(item, start, end) : item.cloneNode(true) as HTMLElement;
+            stripIds(itemFragment);
+            if (ordered) itemFragment.setAttribute('value', String(number));
+            if (start > 0) {
+              itemFragment.classList.add('pagination-list-item-continuation');
+              setMargin(itemFragment, 'top', '0');
             }
+            if (end < total) setMargin(itemFragment, 'bottom', '0');
+            listFragment.appendChild(itemFragment);
+            return listFragment;
+          };
+
+          if (total === 0 || item.querySelector('img, svg, iframe, video, table, .html-render-block, .mermaid-container, .diagram-container, .katex-display')) {
+            appendAtomic(createListFragment(0, total), true);
+          } else {
+            paginateFragments(total, splitBoundaries(item), createListFragment, graphemeBoundaries(item));
           }
         });
+      };
 
-        pageStack.appendChild(page);
+      const paginateTable = (table: HTMLTableElement) => {
+        const rows = Array.from(table.querySelectorAll(':scope > tbody > tr')) as HTMLTableRowElement[];
+        if (rows.length === 0) {
+          appendAtomic(table, false);
+          return;
+        }
+
+        let tableFragment: HTMLTableElement | null = null;
+        let bodyFragment: HTMLTableSectionElement | null = null;
+        const createTableFragment = (continuation: boolean) => {
+          const fragment = table.cloneNode(false) as HTMLTableElement;
+          fragment.classList.add('pagination-table-fragment');
+          if (continuation) setMargin(fragment, 'top', '0');
+          Array.from(table.children).forEach(child => {
+            if (child.tagName === 'CAPTION' || child.tagName === 'COLGROUP' || child.tagName === 'THEAD') {
+              fragment.appendChild(child.cloneNode(true));
+            }
+          });
+          const sourceBody = table.tBodies[0];
+          const tbody = sourceBody ? sourceBody.cloneNode(false) as HTMLTableSectionElement : document.createElement('tbody');
+          fragment.appendChild(tbody);
+          stripIds(fragment);
+          return { fragment, tbody };
+        };
+
+        rows.forEach((row, rowIndex) => {
+          if (!tableFragment || !bodyFragment) {
+            const created = createTableFragment(rowIndex > 0);
+            tableFragment = created.fragment;
+            bodyFragment = created.tbody;
+            const firstRow = row.cloneNode(true) as HTMLTableRowElement;
+            stripIds(firstRow);
+            bodyFragment.appendChild(firstRow);
+            if (!tryAppend(tableFragment)) {
+              if (hasContent()) newPage();
+              currentPage.content.appendChild(tableFragment);
+            }
+            return;
+          }
+
+          const rowClone = row.cloneNode(true) as HTMLTableRowElement;
+          stripIds(rowClone);
+          bodyFragment.appendChild(rowClone);
+          if (!fits()) {
+            rowClone.remove();
+            newPage();
+            const created = createTableFragment(true);
+            tableFragment = created.fragment;
+            bodyFragment = created.tbody;
+            const continuedRow = row.cloneNode(true) as HTMLTableRowElement;
+            stripIds(continuedRow);
+            bodyFragment.appendChild(continuedRow);
+            currentPage.content.appendChild(tableFragment);
+          }
+        });
+      };
+
+      const paginateCode = (element: HTMLElement): boolean => {
+        const lines = Array.from(element.querySelectorAll('.pagination-code-line')) as HTMLElement[];
+        if (lines.length < 2) return false;
+
+        const createCodeFragment = (start: number, end: number) => {
+          const fragment = element.cloneNode(true) as HTMLElement;
+          stripIds(fragment);
+          fragment.classList.add('pagination-code-fragment');
+          const fragmentLines = Array.from(fragment.querySelectorAll('.pagination-code-line'));
+          fragmentLines.forEach((line, index) => {
+            if (index < start || index >= end) line.remove();
+          });
+          if (start > 0) setMargin(fragment, 'top', '0');
+          if (end < lines.length) setMargin(fragment, 'bottom', '0');
+          return fragment;
+        };
+
+        const boundaries = lines.map((_line, index) => index + 1);
+        paginateFragments(lines.length, boundaries, createCodeFragment);
+        return true;
+      };
+
+      const createKeepWithNextProbe = (element: HTMLElement): HTMLElement => {
+        if (element.tagName === 'OL' || element.tagName === 'UL') {
+          const list = element.cloneNode(false) as HTMLElement;
+          const firstItem = element.querySelector(':scope > li');
+          if (firstItem) list.appendChild(firstItem.cloneNode(true));
+          stripIds(list);
+          return list;
+        }
+
+        if (element.tagName === 'TABLE') {
+          const table = element.cloneNode(true) as HTMLTableElement;
+          Array.from(table.querySelectorAll(':scope > tbody > tr')).slice(1).forEach(row => row.remove());
+          stripIds(table);
+          return table;
+        }
+
+        const codeLines = element.querySelectorAll('.pagination-code-line');
+        if (codeLines.length > 0) {
+          const code = element.cloneNode(true) as HTMLElement;
+          Array.from(code.querySelectorAll('.pagination-code-line')).slice(1).forEach(line => line.remove());
+          stripIds(code);
+          return code;
+        }
+
+        const isVisual = element.matches('img, svg, iframe, video, .html-render-block, .mermaid-container, .diagram-container, .katex-display') ||
+          element.querySelector('img, svg, iframe, video, .html-render-block, .mermaid-container, .diagram-container, .katex-display') !== null;
+        if (element.matches('p, blockquote, div, section') && !isVisual) {
+          const firstBoundary = splitBoundaries(element)[0] ?? (element.textContent?.length ?? 0);
+          return createTextFragment(element, 0, firstBoundary);
+        }
+
+        const clone = element.cloneNode(true) as HTMLElement;
+        stripIds(clone);
+        return clone;
+      };
+
+      function appendAtomic(element: HTMLElement, scalableVisual: boolean) {
+        const clone = element.cloneNode(true) as HTMLElement;
+        stripIds(clone);
+        if (tryAppend(clone)) return;
+        if (hasContent()) newPage();
+
+        const freshClone = element.cloneNode(true) as HTMLElement;
+        stripIds(freshClone);
+        currentPage.content.appendChild(freshClone);
+        if (fits() || !scalableVisual) return;
+
+        // Page-edge margins are optional whitespace, not part of the visual.
+        // Drop them before deciding that the object itself needs scaling.
+        freshClone.style.setProperty('margin-top', '0', 'important');
+        freshClone.style.setProperty('margin-bottom', '0', 'important');
+        if (fits()) return;
+
+        // Visuals stay atomic. Only an object taller than a completely fresh
+        // usable page is scaled; an object that merely misses the remaining
+        // space has already been moved intact to this fresh page.
+        const naturalHeight = Math.max(freshClone.getBoundingClientRect().height, freshClone.scrollHeight);
+        const availableHeight = currentPage.content.clientHeight;
+        freshClone.remove();
+        const fitScale = Math.min(1, availableHeight / Math.max(1, naturalHeight));
+        const scaleBox = document.createElement('div');
+        scaleBox.className = 'fit-scale-box';
+        scaleBox.style.height = `${naturalHeight * fitScale}px`;
+        const scaled = element.cloneNode(true) as HTMLElement;
+        stripIds(scaled);
+        scaled.style.setProperty('margin', '0', 'important');
+        scaled.style.transform = `scale(${fitScale})`;
+        scaled.style.transformOrigin = 'top left';
+        scaled.style.width = `${100 / fitScale}%`;
+        scaleBox.appendChild(scaled);
+        currentPage.content.appendChild(scaleBox);
+      }
+
+      children.forEach((element, elementIndex) => {
+        const isList = element.tagName === 'OL' || element.tagName === 'UL';
+        const isTable = element.tagName === 'TABLE';
+        const isHeading = /^H[1-6]$/.test(element.tagName);
+        const isCode = element.matches('pre, .code-block-wrapper') || element.querySelector('.code-block-wrapper') !== null;
+        const isVisual = element.matches('img, svg, iframe, video, .html-render-block, .mermaid-container, .diagram-container, .katex-display') ||
+          element.querySelector('img, svg, iframe, video, .html-render-block, .mermaid-container, .diagram-container, .katex-display') !== null;
+        const isTextBlock = element.matches('p, blockquote, div, section') && !isVisual;
+
+        // Preserve the existing keep-with-next behavior without relying on
+        // source-document offsets: test the heading and the first semantic unit
+        // of its successor directly in the current page's DOM.
+        const nextElement = children[elementIndex + 1];
+        if (isHeading && nextElement && hasContent()) {
+          const headingProbe = element.cloneNode(true) as HTMLElement;
+          stripIds(headingProbe);
+          currentPage.content.appendChild(headingProbe);
+          if (fits()) {
+            const nextProbe = createKeepWithNextProbe(nextElement);
+            currentPage.content.appendChild(nextProbe);
+            const keepFits = fits();
+            nextProbe.remove();
+            headingProbe.remove();
+            if (!keepFits) newPage();
+          } else {
+            headingProbe.remove();
+          }
+        }
+
+        if (isList) paginateList(element);
+        else if (isTable) paginateTable(element as HTMLTableElement);
+        else if (isCode && paginateCode(element)) return;
+        else if (isTextBlock) paginateText(element);
+        else appendAtomic(element, isVisual);
       });
 
+      if (pages.length > 1 && pages[pages.length - 1].content.childElementCount === 0) {
+        pages.pop()?.page.remove();
+      }
+
+      const previousScrollTop = containerRef.current?.scrollTop ?? 0;
+      const pageStack = document.createDocumentFragment();
+      pages.forEach(({ page, pageNum }) => {
+        addPageDecoration(page, pageNum);
+        pageStack.appendChild(page);
+      });
       target.replaceChildren(pageStack);
+      measureHost.remove();
+      lastSignature = signature;
       if (containerRef.current) containerRef.current.scrollTop = previousScrollTop;
     };
 
-    let debounceTimeout: any = null;
-
-    const runPagination = () => {
+    const runPagination = async (version: number) => {
+      await waitForStableLayout();
+      if (cancelled || version !== runVersion) return;
       paginate();
     };
 
-    const debouncedPaginate = (delay = 200) => {
-      if (debounceTimeout) {
-        clearTimeout(debounceTimeout);
-      }
-      debounceTimeout = setTimeout(runPagination, delay);
+    const schedulePagination = (delay = 0) => {
+      if (cancelled) return;
+      runVersion++;
+      const version = runVersion;
+      if (debounceTimeout) clearTimeout(debounceTimeout);
+      debounceTimeout = setTimeout(() => void runPagination(version), delay);
     };
 
-    // Initial run immediately
-    runPagination();
-
-    const observer = new MutationObserver((mutations) => {
-      // Throttle/debounce observer updates
-      debouncedPaginate(150);
+    const observedLayoutNodes = new WeakSet<Element>();
+    const resizeObserver = new ResizeObserver(() => schedulePagination(120));
+    const observeLayoutNodes = (root: ParentNode) => {
+      const nodes = root.querySelectorAll(':scope > *, img, svg, iframe, video, .mermaid-container, .diagram-container, .katex-display');
+      nodes.forEach(node => {
+        if (!observedLayoutNodes.has(node)) {
+          observedLayoutNodes.add(node);
+          resizeObserver.observe(node);
+        }
+      });
+    };
+    const mutationObserver = new MutationObserver(mutations => {
+      mutations.forEach(mutation => {
+        mutation.addedNodes.forEach(node => {
+          if (node instanceof Element) observeLayoutNodes(node);
+        });
+      });
+      observeLayoutNodes(source);
+      schedulePagination(120);
     });
-
-    const resizeObserver = new ResizeObserver(() => {
-      debouncedPaginate(150);
-    });
-
-    if (source.children.length > 0) {
-      observer.observe(source, { childList: true, subtree: true, characterData: true });
-      resizeObserver.observe(source);
-    }
+    mutationObserver.observe(source, { childList: true, subtree: true, characterData: true, attributes: true });
+    resizeObserver.observe(source);
+    observeLayoutNodes(source);
+    const onFontsChanged = () => schedulePagination(0);
+    document.fonts?.addEventListener?.('loadingdone', onFontsChanged);
+    schedulePagination();
 
     return () => {
-      if (debounceTimeout) {
-        clearTimeout(debounceTimeout);
-      }
-      observer.disconnect();
+      cancelled = true;
+      runVersion++;
+      if (debounceTimeout) clearTimeout(debounceTimeout);
+      mutationObserver.disconnect();
       resizeObserver.disconnect();
+      document.fonts?.removeEventListener?.('loadingdone', onFontsChanged);
+      document.querySelectorAll('.pagination-measure-host').forEach(host => host.remove());
     };
   }, [
     content,
@@ -1052,10 +1071,11 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           .page {
             width: 210mm;
             height: 297mm;
-            padding: ${getVerticalPadding()} ${getHorizontalPadding()};
+            padding: ${pagePaddingTop} ${pagePaddingRight} ${pagePaddingBottom} ${pagePaddingLeft};
             background-color: ${theme.colors.background};
             color: ${theme.colors.text} !important;
             font-family: ${theme.fonts.body};
+            font-size: ${fontSize}px;
             box-sizing: border-box;
             overflow: hidden;
             position: relative;
@@ -1068,10 +1088,9 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             flex-shrink: 0;
           }
          
-         /* STRICT text styling to match split logic — applied to BOTH the hidden
-            measurement source and the rendered pages so measured heights match
-            rendered heights exactly (otherwise lines get clipped at page bottom). */
-         :is(.page, .markdown-source) :is(p, li, h1, h2, h3, h4, h5, h6, blockquote, table, a, strong, em):not(.html-render-block *) {
+         /* The hidden source, measured pages and visible pages are all real
+            .page trees, so one selector owns their typography. */
+         .page :is(p, li, h1, h2, h3, h4, h5, h6, blockquote, table, a, strong, em):not(.html-render-block *) {
              line-height: 1.5 !important;
          }
          .page :is(p, li, blockquote, td, a, strong, em):not(.html-render-block *) {
@@ -1233,17 +1252,40 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
          .page-content {
             height: 100%;
             width: 100%;
+            position: relative;
+            overflow: hidden;
+            box-sizing: border-box;
          }
 
-         .markdown-source {
-           position: absolute;
-           top: 0;
-           left: -9999px;
-           width: calc(210mm - (${getHorizontalPadding()} * 2));
-           visibility: hidden;
-           /* Must match .page typography exactly or measured heights drift */
-           font-family: ${theme.fonts.body};
-           line-height: 1.5;
+         .markdown-source-page,
+         .pagination-measure-host {
+           position: fixed !important;
+           top: 0 !important;
+           left: -20000px !important;
+           visibility: hidden !important;
+           pointer-events: none !important;
+         }
+         .markdown-source-page.page,
+         .pagination-measure-host .page {
+           transform: none !important;
+           margin: 0 !important;
+           border: 0 !important;
+           box-shadow: none !important;
+         }
+         .pagination-measure-host {
+           width: 210mm;
+         }
+         .fit-scale-box {
+           width: 100%;
+           overflow: hidden;
+           position: relative;
+           margin: 0;
+         }
+         .pagination-list-item-continuation::marker {
+           content: '';
+         }
+         .pagination-code-line {
+           display: block;
          }
 
          /* Headers logic */
@@ -1278,7 +1320,6 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           /* Academic Report: strict formatting rules — absolute pt sizes, not em */
           .page {
             font-size: 12pt !important;
-            padding: 25.4mm 25.4mm 25.4mm 38.1mm !important; /* top/right/bottom 1in, left 1.5in */
           }
           .page :is(p, li):not(.html-render-block *) {
             text-align: justify !important;
@@ -1389,8 +1430,8 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
          @media screen {
            .page {
              margin: 0 auto 2rem auto;
-             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-             border: 1px solid ${theme.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'};
+             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05), 0 0 0 1px ${theme.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'};
+             border: none;
              text-align: left;
            }
         }
@@ -1410,7 +1451,8 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
            }
            /* The hidden measurement source must not occupy layout space when
               printing — it is what created the blank first page. */
-           .markdown-source {
+           .markdown-source-page,
+           .pagination-measure-host {
              display: none !important;
            }
            /* Kill the 2rem breathing room around the page stack in print —
@@ -1426,9 +1468,12 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
              box-shadow: none !important;
              border: none !important;
              page-break-after: always !important;
-             padding: ${getVerticalPadding()} ${getHorizontalPadding()} !important;
+             padding: ${pagePaddingTop} ${pagePaddingRight} ${pagePaddingBottom} ${pagePaddingLeft} !important;
              width: 210mm !important;
              height: 297mm !important;
+             box-sizing: border-box !important;
+             overflow: hidden !important;
+             break-inside: avoid !important;
            }
            .page:last-child {
              /* !important is required: the plain .page rule above declares
@@ -1444,8 +1489,9 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       `}</style>
 
       <div className="w-full h-full flex flex-col items-center print:min-h-screen print:overflow-visible">
-        <div ref={sourceRef} id="markdown-source" className="markdown-source">
-          <ReactMarkdown
+        <div className={`page markdown-source-page ${paginationThemeClass}`.trim()} aria-hidden="true">
+          <div ref={sourceRef} id="markdown-source" className="page-content markdown-source">
+            <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[rehypeRaw, rehypeKatex]}
             components={{
@@ -1560,6 +1606,11 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                       language={language || 'text'}
                       PreTag="div"
                       wrapLongLines={wordWrap}
+                      wrapLines
+                      lineProps={(lineNumber: number) => ({
+                        className: 'pagination-code-line',
+                        'data-line-number': lineNumber,
+                      })}
                       showLineNumbers={showLineNumbers}
                       lineNumberStyle={{ minWidth: '2.5em', paddingRight: '1em', color: codeBlockDark ? '#6e7681' : theme.colors.secondary, opacity: 0.5, textAlign: 'right', userSelect: 'none' }}
                       customStyle={{
@@ -1608,7 +1659,8 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             }}
           >
             {preprocessedContent}
-          </ReactMarkdown>
+            </ReactMarkdown>
+          </div>
         </div>
 
         <div
