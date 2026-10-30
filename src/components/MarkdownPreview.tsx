@@ -451,9 +451,54 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       pageNum: number;
     }
 
+    let svgCloneId = 0;
+    const svgNamespace = `pagination-${Math.random().toString(36).slice(2)}`;
     const stripIds = (root: HTMLElement) => {
-      root.removeAttribute('id');
-      root.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+      // HTML anchors must not repeat across fragments. SVG IDs, however,
+      // also connect scoped styles, gradients and arrow markers: remap these
+      // together instead of stripping the IDs and breaking the drawing.
+      if (!root.closest('svg')) root.removeAttribute('id');
+      root.querySelectorAll('[id]').forEach(node => {
+        if (!node.closest('svg')) node.removeAttribute('id');
+      });
+      const diagrams: Element[] = root.matches('svg')
+        ? [root]
+        : Array.from(root.querySelectorAll('svg')).filter(svg => !svg.parentElement?.closest('svg'));
+      diagrams.forEach(svg => {
+        const prefix = `${svgNamespace}-${++svgCloneId}-`;
+        const ids = new Map<string, string>();
+        const nodes: Element[] = [svg, ...Array.from(svg.querySelectorAll('*'))];
+        nodes.forEach(node => {
+          if (node.id) {
+            const original = node.id;
+            const replacement = prefix + original;
+            ids.set(original, replacement);
+            node.id = replacement;
+          }
+        });
+        const rewriteReferences = (value: string) => value.replace(/#([\w-]+)/g,
+          (reference, id: string) => ids.has(id) ? `#${ids.get(id)}` : reference);
+        const rewriteUrls = (value: string) => value.replace(/url\(\s*(['"]?)#([^\s()'"]+)\1\s*\)/g,
+          (reference, quote: string, id: string) => ids.has(id) ? `url(${quote}#${ids.get(id)}${quote})` : reference);
+        nodes.forEach(node => {
+          Array.from(node.attributes).forEach(attribute => {
+            if (attribute.name === 'id') return;
+            let value = attribute.name === 'aria-labelledby' || attribute.name === 'aria-describedby'
+              ? attribute.value.split(/\s+/).map(id => ids.get(id) ?? id).join(' ')
+              : rewriteUrls(attribute.value);
+            if (attribute.localName === 'href' && attribute.value.startsWith('#')) {
+              value = `#${ids.get(attribute.value.slice(1)) ?? attribute.value.slice(1)}`;
+            }
+            if (value !== attribute.value) node.setAttributeNS(attribute.namespaceURI, attribute.name, value);
+          });
+          if (node.tagName.toLowerCase() === 'style') {
+            // Only selectors and url() references contain IDs. Hexadecimal
+            // colors in declarations must retain their original values.
+            node.textContent = rewriteUrls((node.textContent ?? '').replace(/([^{}]+)\{/g,
+              (_match, selector: string) => `${rewriteReferences(selector)}{`));
+          }
+        });
+      });
     };
 
     const setMargin = (node: HTMLElement, side: 'top' | 'bottom', value: string) => {
@@ -645,23 +690,29 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         return false;
       };
 
-      const largestFittingBoundary = (
+      const findFittingBoundary = (
         start: number,
         boundaries: number[],
-        createFragment: (start: number, end: number) => HTMLElement
+        testBoundary: (end: number) => boolean
       ): number => {
         const candidates = boundaries.filter(value => value > start);
-        let low = 0;
-        let high = candidates.length - 1;
-        let best = start;
+        if (candidates.length === 0 || !testBoundary(candidates[0])) return start;
+        // Bound the search from the current page forwards. Starting halfway
+        // through a huge code block needlessly lays out dozens of pages on
+        // every probe, even though only a few rendered lines can fit here.
+        let bestIndex = 0;
+        let probe = 1;
+        while (probe < candidates.length && testBoundary(candidates[probe])) {
+          bestIndex = probe;
+          probe = probe * 2 + 1;
+        }
+        let low = bestIndex + 1;
+        let high = Math.min(probe, candidates.length - 1);
+        let best = candidates[bestIndex];
         while (low <= high) {
           const mid = Math.floor((low + high) / 2);
           const end = candidates[mid];
-          const candidate = createFragment(start, end);
-          currentPage.content.appendChild(candidate);
-          const candidateFits = fits();
-          candidate.remove();
-          if (candidateFits) {
+          if (testBoundary(end)) {
             best = end;
             low = mid + 1;
           } else {
@@ -671,28 +722,42 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         return best;
       };
 
+      const largestFittingBoundary = (
+        start: number,
+        boundaries: number[],
+        createFragment: (start: number, end: number) => HTMLElement
+      ): number => findFittingBoundary(start, boundaries, end => {
+        const candidate = createFragment(start, end);
+        currentPage.content.appendChild(candidate);
+        const candidateFits = fits();
+        candidate.remove();
+        return candidateFits;
+      });
+
       const paginateFragments = (
         total: number,
         boundaries: number[],
         createFragment: (start: number, end: number) => HTMLElement,
-        fallbackBoundaries: number[] = boundaries
+        fallbackBoundaries: number[] = boundaries,
+        tryWholeRemainder = true
       ) => {
         let start = 0;
         while (start < total) {
-          const wholeRemainder = createFragment(start, total);
-          if (tryAppend(wholeRemainder)) break;
+          if (tryWholeRemainder && tryAppend(createFragment(start, total))) break;
 
           let end = largestFittingBoundary(start, boundaries, createFragment);
+          if (end === start) {
+            // A long token may still have rendered lines that fit in the
+            // remaining space. Test graphemes before abandoning this page.
+            end = largestFittingBoundary(start, fallbackBoundaries, createFragment);
+          }
           if (end === start && hasContent()) {
             newPage();
             continue;
           }
           if (end === start) {
-            // A single unusually long token can exceed the word-boundary set.
-            // Fall back to actual text-node character boundaries on a fresh page.
-            end = largestFittingBoundary(start, fallbackBoundaries, createFragment);
+            throw new Error('A minimum text fragment exceeds the usable page height');
           }
-          if (end === start) end = Math.min(total, start + 1);
           currentPage.content.appendChild(createFragment(start, end));
           start = end;
           if (start < total) newPage();
@@ -768,14 +833,33 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           return;
         }
 
+        // An auto-layout table would choose different column widths for each
+        // subset of rows. Freeze the source widths so continued cells reflow
+        // with exactly the same geometry as the measured table.
+        const width = table.getBoundingClientRect().width;
+        const columnCells = Array.from((table.tHead?.rows[0] ?? rows[0]).cells);
+        const columnWidths = columnCells.flatMap(cell =>
+          Array.from({ length: cell.colSpan }, () => cell.getBoundingClientRect().width / cell.colSpan)
+        );
         let tableFragment: HTMLTableElement | null = null;
         let bodyFragment: HTMLTableSectionElement | null = null;
         const createTableFragment = (continuation: boolean) => {
           const fragment = table.cloneNode(false) as HTMLTableElement;
           fragment.classList.add('pagination-table-fragment');
+          fragment.dataset.paginationSource = String(children.indexOf(table));
+          fragment.style.width = `${width}px`;
+          fragment.style.tableLayout = 'fixed';
           if (continuation) setMargin(fragment, 'top', '0');
+          setMargin(fragment, 'bottom', '0');
+          const columns = document.createElement('colgroup');
+          columnWidths.forEach(columnWidth => {
+            const column = document.createElement('col');
+            column.style.width = `${columnWidth}px`;
+            columns.appendChild(column);
+          });
+          fragment.appendChild(columns);
           Array.from(table.children).forEach(child => {
-            if (child.tagName === 'CAPTION' || child.tagName === 'COLGROUP' || child.tagName === 'THEAD') {
+            if (child.tagName === 'THEAD' || (child.tagName === 'CAPTION' && !continuation)) {
               fragment.appendChild(child.cloneNode(true));
             }
           });
@@ -786,65 +870,181 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           return { fragment, tbody };
         };
 
-        rows.forEach((row, rowIndex) => {
+        const ensureTable = (continuation: boolean) => {
           if (!tableFragment || !bodyFragment) {
-            const created = createTableFragment(rowIndex > 0);
+            const created = createTableFragment(continuation);
             tableFragment = created.fragment;
             bodyFragment = created.tbody;
-            const firstRow = row.cloneNode(true) as HTMLTableRowElement;
-            stripIds(firstRow);
-            bodyFragment.appendChild(firstRow);
-            if (!tryAppend(tableFragment)) {
-              if (hasContent()) newPage();
-              currentPage.content.appendChild(tableFragment);
-            }
+            currentPage.content.appendChild(tableFragment);
+          }
+          return bodyFragment;
+        };
+        const discardEmptyTable = () => {
+          if (bodyFragment?.rows.length === 0) {
+            tableFragment?.remove();
+            tableFragment = null;
+            bodyFragment = null;
+          }
+        };
+        const continueTable = () => {
+          discardEmptyTable();
+          newPage();
+          tableFragment = null;
+          bodyFragment = null;
+        };
+        const rowClone = (row: HTMLTableRowElement, rowIndex: number) => {
+          const clone = row.cloneNode(true) as HTMLTableRowElement;
+          clone.dataset.paginationRow = String(rowIndex);
+          Array.from(clone.cells).forEach((cell, index) => {
+            cell.dataset.paginationColumn = String(index);
+          });
+          clone.style.backgroundColor = getComputedStyle(row).backgroundColor;
+          stripIds(clone);
+          return clone;
+        };
+
+        rows.forEach((row, rowIndex) => {
+          const wholeRow = rowClone(row, rowIndex);
+          ensureTable(rowIndex > 0).appendChild(wholeRow);
+          if (fits()) return;
+          wholeRow.remove();
+
+          // Keep ordinary rows intact when they fit on a fresh page. A row
+          // taller than a page must instead continue its individual cells.
+          const probePage = document.createElement('div');
+          probePage.className = currentPage.page.className;
+          const probeContent = document.createElement('div');
+          probeContent.className = 'page-content';
+          const probeTable = createTableFragment(true);
+          probeTable.tbody.appendChild(rowClone(row, rowIndex));
+          probeContent.appendChild(probeTable.fragment);
+          probePage.appendChild(probeContent);
+          measureHost.appendChild(probePage);
+          const rowFitsFreshPage = probeContent.scrollHeight <= probeContent.clientHeight;
+          probePage.remove();
+          if (rowFitsFreshPage) {
+            continueTable();
+            ensureTable(true).appendChild(wholeRow);
             return;
           }
 
-          const rowClone = row.cloneNode(true) as HTMLTableRowElement;
-          stripIds(rowClone);
-          bodyFragment.appendChild(rowClone);
-          if (!fits()) {
-            rowClone.remove();
-            newPage();
-            const created = createTableFragment(true);
-            tableFragment = created.fragment;
-            bodyFragment = created.tbody;
-            const continuedRow = row.cloneNode(true) as HTMLTableRowElement;
-            stripIds(continuedRow);
-            bodyFragment.appendChild(continuedRow);
-            currentPage.content.appendChild(tableFragment);
+          const cells = Array.from(row.cells);
+          const totals = cells.map(cell => cell.textContent?.length ?? 0);
+          const boundaries = cells.map(splitBoundaries);
+          const fallback = cells.map(graphemeBoundaries);
+          let offsets = cells.map(() => 0);
+          while (offsets.some((offset, index) => offset < totals[index])) {
+            const partialRow = rowClone(row, rowIndex);
+            partialRow.classList.add('pagination-row-fragment');
+            Array.from(partialRow.cells).forEach(cell => cell.replaceChildren());
+            ensureTable(rowIndex > 0 || offsets.some(offset => offset > 0)).appendChild(partialRow);
+            const nextOffsets = [...offsets];
+            cells.forEach((cell, index) => {
+              const start = offsets[index];
+              if (start === totals[index]) return;
+              const test = (end: number) => {
+                const candidate = cloneTextRange(cell, start, end) as HTMLTableCellElement;
+                candidate.dataset.paginationColumn = String(index);
+                const previous = partialRow.cells[index];
+                previous.replaceWith(candidate);
+                const candidateFits = fits();
+                candidate.replaceWith(previous);
+                return candidateFits;
+              };
+              let end = findFittingBoundary(start, boundaries[index], test);
+              if (end === start) end = findFittingBoundary(start, fallback[index], test);
+              const fragment = cloneTextRange(cell, start, end) as HTMLTableCellElement;
+              fragment.dataset.paginationColumn = String(index);
+              partialRow.cells[index].replaceWith(fragment);
+              nextOffsets[index] = end;
+            });
+            if (nextOffsets.every((offset, index) => offset === offsets[index])) {
+              partialRow.remove();
+              discardEmptyTable();
+              if (!hasContent()) throw new Error('A minimum table-cell fragment exceeds the usable page height');
+              continueTable();
+              continue;
+            }
+            offsets = nextOffsets;
+            if (offsets.some((offset, index) => offset < totals[index])) continueTable();
           }
         });
       };
 
-      const paginateCode = (element: HTMLElement): boolean => {
+      const prepareCodeFragments = (element: HTMLElement) => {
         const lines = Array.from(element.querySelectorAll('.pagination-code-line')) as HTMLElement[];
-        if (lines.length < 2) return false;
+        if (lines.length === 0) return null;
+
+        const template = element.cloneNode(true) as HTMLElement;
+        const templateLines = Array.from(template.querySelectorAll('.pagination-code-line'));
+        templateLines[0].parentElement!.setAttribute('data-pagination-code-body', '');
+        templateLines.forEach(line => line.remove());
+        let total = 0;
+        const boundaries: number[] = [];
+        const fallback: number[] = [];
+        const sourceLines = lines.map(line => {
+          const source = line.cloneNode(true) as HTMLElement;
+          const number = source.querySelector('.react-syntax-highlighter-line-number');
+          const lineNumber = number?.cloneNode(true) as HTMLElement | undefined;
+          number?.remove();
+          const start = total;
+          const length = Math.max(1, source.textContent?.length ?? 0);
+          splitBoundaries(source).forEach(offset => boundaries.push(start + offset));
+          graphemeBoundaries(source).forEach(offset => fallback.push(start + offset));
+          total += length;
+          boundaries.push(total);
+          fallback.push(total);
+          return { source, start, end: total, lineNumber };
+        });
 
         const createCodeFragment = (start: number, end: number) => {
-          const fragment = element.cloneNode(true) as HTMLElement;
+          const fragment = template.cloneNode(true) as HTMLElement;
           stripIds(fragment);
           fragment.classList.add('pagination-code-fragment');
-          const fragmentLines = Array.from(fragment.querySelectorAll('.pagination-code-line'));
-          fragmentLines.forEach((line, index) => {
-            if (index < start || index >= end) line.remove();
+          const body = fragment.querySelector('[data-pagination-code-body]')!;
+          body.removeAttribute('data-pagination-code-body');
+          sourceLines.forEach(line => {
+            if (line.end <= start || line.start >= end) return;
+            const localStart = Math.max(0, start - line.start);
+            const localEnd = Math.min(line.end, end) - line.start;
+            const lineFragment = cloneTextRange(line.source, localStart, localEnd);
+            if (localStart > 0) lineFragment.classList.add('pagination-code-line-continuation');
+            if (line.lineNumber) {
+              const number = line.lineNumber.cloneNode(true) as HTMLElement;
+              if (localStart > 0) {
+                number.replaceChildren();
+                number.setAttribute('aria-hidden', 'true');
+              }
+              lineFragment.prepend(number);
+            }
+            body.appendChild(lineFragment);
           });
           if (start > 0) setMargin(fragment, 'top', '0');
-          if (end < lines.length) setMargin(fragment, 'bottom', '0');
+          if (end < total) setMargin(fragment, 'bottom', '0');
           return fragment;
         };
 
-        const boundaries = lines.map((_line, index) => index + 1);
-        paginateFragments(lines.length, boundaries, createCodeFragment);
+        return { total, boundaries, fallback, createCodeFragment };
+      };
+
+      const paginateCode = (element: HTMLElement): boolean => {
+        const code = prepareCodeFragments(element);
+        if (!code) return false;
+        paginateFragments(code.total, code.boundaries, code.createCodeFragment, code.fallback, false);
         return true;
       };
 
       const createKeepWithNextProbe = (element: HTMLElement): HTMLElement => {
         if (element.tagName === 'OL' || element.tagName === 'UL') {
           const list = element.cloneNode(false) as HTMLElement;
-          const firstItem = element.querySelector(':scope > li');
-          if (firstItem) list.appendChild(firstItem.cloneNode(true));
+          const firstItem = element.querySelector(':scope > li') as HTMLElement | null;
+          if (firstItem) {
+            const boundary = splitBoundaries(firstItem)[0];
+            const isVisual = firstItem.querySelector('img, svg, iframe, video, table, .katex-display');
+            list.appendChild(boundary && !isVisual
+              ? cloneTextRange(firstItem, 0, boundary)
+              : firstItem.cloneNode(true));
+          }
           stripIds(list);
           return list;
         }
@@ -852,17 +1052,21 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         if (element.tagName === 'TABLE') {
           const table = element.cloneNode(true) as HTMLTableElement;
           Array.from(table.querySelectorAll(':scope > tbody > tr')).slice(1).forEach(row => row.remove());
+          const firstRow = table.tBodies[0]?.rows[0];
+          const originalTable = element as HTMLTableElement;
+          const originalRow = originalTable.tBodies[0]?.rows[0];
+          const rowHeight = originalRow?.getBoundingClientRect().height ?? 0;
+          const headerHeight = originalTable.tHead?.getBoundingClientRect().height ?? 0;
+          if (firstRow && rowHeight + headerHeight > currentPage.content.clientHeight) Array.from(firstRow.cells).forEach(cell => {
+            const boundary = splitBoundaries(cell)[0];
+            if (boundary) cell.replaceWith(cloneTextRange(cell, 0, boundary));
+          });
           stripIds(table);
           return table;
         }
 
-        const codeLines = element.querySelectorAll('.pagination-code-line');
-        if (codeLines.length > 0) {
-          const code = element.cloneNode(true) as HTMLElement;
-          Array.from(code.querySelectorAll('.pagination-code-line')).slice(1).forEach(line => line.remove());
-          stripIds(code);
-          return code;
-        }
+        const code = prepareCodeFragments(element);
+        if (code) return code.createCodeFragment(0, code.boundaries[0] ?? code.total);
 
         const isVisual = element.matches('img, svg, iframe, video, .html-render-block, .mermaid-container, .diagram-container, .katex-display') ||
           element.querySelector('img, svg, iframe, video, .html-render-block, .mermaid-container, .diagram-container, .katex-display') !== null;
