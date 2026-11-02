@@ -4,6 +4,7 @@ import { exportDocx } from './docxExport';
 import MarkdownPreview from './components/MarkdownPreview';
 import { AppTheme, DEFAULT_THEME, THEME_PRESETS } from './types';
 import { getChatGptDiagramPaste } from './diagrams/chatgptClipboard';
+import DiagramReconstructionPanel from './components/DiagramReconstructionPanel';
 import {
   DocumentTextIcon,
   DocumentArrowDownIcon,
@@ -588,6 +589,10 @@ function App() {
                   </button>
                 </div>
                 
+                <DiagramReconstructionPanel content={markdown} onReplace={(expected, replacement) => {
+                  setMarkdown(current => current === expected ? replacement : current);
+                }} />
+
                 {/* Textarea Editor */}
                 <textarea
                   className="flex-1 w-full p-6 md:p-8 outline-none resize-none font-mono text-sm leading-relaxed text-docit-text-muted bg-docit-bg-deep/85 custom-scrollbar placeholder:text-docit-text-tertiary"
