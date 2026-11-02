@@ -12,21 +12,32 @@
   #bookmark[aria-disabled="true"] { opacity: .5; pointer-events: none; }
 </style>
 <h1>Keep original ChatGPT diagrams</h1>
-<p>Enable the copy helper in ChatGPT, then use its usual Copy response button. Your Markdown keeps each diagram’s original arrows and layout.</p>
+<p>First add the helper to your browser, then enable it in the ChatGPT conversation you want to copy. The helper preserves each live diagram’s original arrows and layout.</p>
 <p>The helper runs locally in your browser and preserves the live SVG. It requires no API key and sends no response text to a service.</p>
 <section>
-  <h2>Enable in a ChatGPT tab</h2>
-  <ol>
-    <li>Drag the button below to your browser’s bookmarks bar.</li>
-    <li>Open the original response in ChatGPT and click that bookmark.</li>
-    <li>Wait for the diagram to finish rendering, use Copy response, then paste into the editor.</li>
-  </ol>
+  <h2>1. Add the helper as a bookmark</h2>
+  <p>Show your browser’s bookmarks bar and drag this button onto it. This creates your own <strong>Keep ChatGPT diagrams</strong> bookmark.</p>
   <a id="bookmark" class="button" draggable="true" aria-disabled="true">Keep ChatGPT diagrams</a>
   <p id="status" role="status">Preparing the bookmark…</p>
-  <p>Enable it again after reloading the ChatGPT page. If your browser blocks the bookmark, use the persistent helper below.</p>
+  <p>Clicking the button on this setup page shows these instructions. Run the saved bookmark while you are in ChatGPT.</p>
 </section>
 <section>
-  <h2>Enable automatically</h2>
+  <h2>2. Enable it in the ChatGPT conversation</h2>
+  <ol>
+    <li>Open the original response on <a href="https://chatgpt.com/">ChatGPT’s website</a> in this browser.</li>
+    <li>Click <strong>Keep ChatGPT diagrams</strong> on your bookmarks bar.</li>
+    <li>Look for the <strong>MarkMind diagram copy helper</strong> panel at the bottom left of the ChatGPT page. It should say <strong>Diagram copy helper enabled in this tab</strong>.</li>
+  </ol>
+  <p>If no panel appears, the helper has not confirmed activation. Use the persistent helper below if your browser blocks the bookmark.</p>
+</section>
+<section>
+  <h2>3. Copy the response</h2>
+  <p>Wait for the diagrams to finish rendering, then use ChatGPT’s usual <strong>Copy response</strong> button. The helper panel should say <strong>Preserved … diagrams</strong>. Paste the response into MarkMind.</p>
+  <p>The panel stays visible. If it reports a failure or does not observe copying, use <strong>Download helper report</strong> to share installation status, call counts, and SVG counts. The report contains no response text, labels, diagram IDs, or page URLs, and downloading it leaves your copied response on the clipboard.</p>
+  <p>Run the bookmark again after reloading ChatGPT. Use <strong>Disable helper</strong> in the panel when finished.</p>
+</section>
+<section>
+  <h2>Alternative: enable automatically</h2>
   <p>If you use a userscript manager, install the persistent helper. It activates when a ChatGPT page opens, so you can keep using Copy response across reloads.</p>
   <a class="button" href="/diagram-copy-helper.user.js">Install persistent helper</a>
 </section>

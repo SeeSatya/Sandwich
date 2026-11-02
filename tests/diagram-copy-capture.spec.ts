@@ -284,7 +284,7 @@ test('self-contained userscript runs before native Copy response in a controlled
   }, { svg: svg(), artifact: artifact() });
   await page.addScriptTag({ content: bundle });
   await page.getByRole('button', { name: 'Copy response' }).click();
-  await expect(page.locator('#markmind-copy-capture-status')).toContainText('Preserved 1 diagram');
+  await expect(page.locator('#markmind-copy-capture-message')).toContainText('Preserved 1 diagram');
   expect(await page.evaluate(() => (window as any).copiedPayloads[0])).toMatch(/^<!-- markmind-diagram-capture:v1 diagrams=1 -->/);
 });
 
@@ -337,4 +337,163 @@ test('real browser ClipboardItems round-trip captured plain SVG while retaining 
   expect(result.plain).toMatch(/^<!-- markmind-diagram-capture:v1 diagrams=1 -->/);
   expect(result.plain).toContain('```chatgpt-svg');
   expect(result.html).toContain('<p>Native rich content</p>');
+});
+
+test('activation panel remains visible, reactivation restores it, and uninstall removes it', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { installNativeCopyCapture } = await import('/src/diagrams/' + 'nativeCopyCapture.ts');
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } });
+    const state = installNativeCopyCapture(window);
+    const wrapper = navigator.clipboard.writeText;
+    const panel = document.querySelector('#markmind-copy-capture-panel')!;
+    const scheduled: number[] = [];
+    const timeout = window.setTimeout;
+    window.setTimeout = ((callback: TimerHandler, delay?: number, ...args: any[]) => {
+      scheduled.push(delay || 0); return timeout(callback, delay, ...args);
+    }) as typeof window.setTimeout;
+    panel.remove();
+    const same = installNativeCopyCapture(window) === state;
+    const visible = document.querySelector('#markmind-copy-capture-message')?.textContent;
+    const retainedWrapper = navigator.clipboard.writeText === wrapper;
+    state.uninstall();
+    const removed = !document.querySelector('#markmind-copy-capture-panel');
+    window.setTimeout = timeout;
+    return { same, visible, retainedWrapper, removed, scheduled };
+  });
+  expect(result.same).toBe(true);
+  expect(result.visible).toContain('Diagram copy helper enabled in this tab');
+  expect(result.retainedWrapper).toBe(true);
+  expect(result.removed).toBe(true);
+  expect(result.scheduled).toEqual([]);
+});
+
+test('helper report diagnoses rejected native attempts without revealing response or error text', async ({ page }) => {
+  const result = await page.evaluate(async ({ svg, artifact }) => {
+    const { installNativeCopyCapture } = await import('/src/diagrams/' + 'nativeCopyCapture.ts');
+    document.body.insertAdjacentHTML('beforeend', svg);
+    const denied = new Error('PRIVATE native message https://private.example/conversation');
+    let calls = 0;
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => { calls++; return Promise.reject(denied); } } });
+    const state = installNativeCopyCapture(window, () => { throw new Error('Optional feedback failure'); });
+    const initial = state.getReport();
+    let sameError = false;
+    const writing = navigator.clipboard.writeText(artifact);
+    const pending = state.getReport();
+    try { await writing; } catch (error) { sameError = error === denied; }
+    const final = state.getReport();
+    Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async () => {} });
+    const replaced = state.getReport();
+    state.uninstall();
+    return { calls, sameError, initial, pending, final, replaced, serialized: JSON.stringify(final) };
+  }, { svg: svg(), artifact: artifact() });
+  expect(result.initial).toMatchObject({ helperVersion: '1.1.0', installed: true, clipboardCalls: { write: 0, writeText: 0 }, liveSvgCandidates: 1, lastOperation: null });
+  expect(result.pending).toMatchObject({ clipboardCalls: { write: 0, writeText: 1 }, lastOperation: { method: 'writeText', outcome: 'pending' } });
+  expect(result.final).toMatchObject({ clipboardCalls: { write: 0, writeText: 1 }, wrapperIntegrity: { write: null, writeText: true }, lastOperation: { method: 'writeText', outcome: 'rejected' }, lastResult: { count: 0, reason: 'The native clipboard operation was rejected.' } });
+  expect(result.calls).toBe(1);
+  expect(result.sameError).toBe(true);
+  expect(result.replaced.wrapperIntegrity.writeText).toBe(false);
+  expect(result.serialized).not.toMatch(/PRIVATE|private\.example|_r_sample_|学习|Input|chatgpt-mermaid/);
+});
+
+test('failed installation remains inspectable and partial wrappers are rolled back', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { installNativeCopyCapture } = await import('/src/diagrams/' + 'nativeCopyCapture.ts');
+    const original = async () => {};
+    const clipboard = { writeText: original };
+    Object.defineProperty(clipboard, 'write', { configurable: false, writable: false, value: original });
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: clipboard });
+    const state = installNativeCopyCapture(window);
+    const diagnostic = state.getReport();
+    const stored = (window as any).__markmindDiagramCapture === state;
+    const restored = navigator.clipboard.writeText === original;
+    const message = document.querySelector('#markmind-copy-capture-message')?.textContent;
+    state.uninstall();
+    return { diagnostic, stored, restored, message };
+  });
+  expect(result.diagnostic.installed).toBe(false);
+  expect(result.diagnostic.lastResult?.reason).toContain('does not allow');
+  expect(result.stored).toBe(true);
+  expect(result.restored).toBe(true);
+  expect(result.message).toContain('Diagrams not preserved');
+});
+
+test('reactivation repairs replaced hooks without discarding the current clipboard method', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { installNativeCopyCapture } = await import('/src/diagrams/' + 'nativeCopyCapture.ts');
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } });
+    const first = installNativeCopyCapture(window);
+    const received: string[] = [];
+    const replacement = async (text: string) => { received.push(text); };
+    Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, writable: true, value: replacement });
+    first.reopen();
+    const warning = document.querySelector('#markmind-copy-capture-message')?.textContent;
+    const second = installNativeCopyCapture(window);
+    const enabled = document.querySelector('#markmind-copy-capture-message')?.textContent;
+    await navigator.clipboard.writeText('ordinary current copy');
+    const report = second.getReport();
+    const panelCount = document.querySelectorAll('#markmind-copy-capture-panel').length;
+    second.uninstall();
+    return { warning, enabled, replacedState: first !== second, received, report, panelCount, restored: navigator.clipboard.writeText === replacement };
+  });
+  expect(result.warning).toContain('clipboard hook changed');
+  expect(result.enabled).toContain('Diagram copy helper enabled');
+  expect(result.replacedState).toBe(true);
+  expect(result.received).toEqual(['ordinary current copy']);
+  expect(result.report.wrapperIntegrity.writeText).toBe(true);
+  expect(result.report.clipboardCalls.writeText).toBe(1);
+  expect(result.panelCount).toBe(1);
+  expect(result.restored).toBe(true);
+});
+
+test('pending legacy toast feedback cannot remove the upgraded panel status', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { installNativeCopyCapture } = await import('/src/diagrams/' + 'nativeCopyCapture.ts');
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } });
+    (window as any).__markmindDiagramCapture = { version: 1, installed: true, uninstall() {} };
+    const state = installNativeCopyCapture(window);
+    // The 1.0 bundle can finish an older native write after its uninstall.
+    document.getElementById('markmind-copy-capture-status')?.remove();
+    const legacyToast = document.createElement('div');
+    legacyToast.id = 'markmind-copy-capture-status';
+    document.body.append(legacyToast);
+    await navigator.clipboard.writeText('current copy');
+    const status = document.querySelector('#markmind-copy-capture-panel #markmind-copy-capture-message')?.textContent;
+    const report = state.getReport();
+    const legacyRemoved = !document.getElementById('markmind-copy-capture-status');
+    state.uninstall();
+    return { status, report, legacyRemoved };
+  });
+  expect(result.status).toContain('Copy observed');
+  expect(result.report.clipboardCalls.writeText).toBe(1);
+  expect(result.report.lastOperation?.outcome).toBe('succeeded');
+  expect(result.legacyRemoved).toBe(true);
+});
+
+test('document-start userscript mounts after parsing and upgrades an older installed helper', async ({ page }) => {
+  const bundle = readFileSync('public/diagram-copy-helper.user.js', 'utf8');
+  const installOldHelper = () => {
+    const original = navigator.clipboard.writeText;
+    const oldWrapper = function (text: string) { return Reflect.apply(original, navigator.clipboard, [text]); };
+    Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, writable: true, value: oldWrapper });
+    (window as any).oldHelperUninstalled = false;
+    (window as any).__markmindDiagramCapture = {
+      version: 1, installed: true, lastResult: null,
+      uninstall() {
+        (window as any).oldHelperUninstalled = true;
+        Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, writable: true, value: original });
+      },
+    };
+  };
+  await page.addInitScript({ content: `(${installOldHelper.toString()})();\n${bundle}` });
+  await page.route('https://chatgpt.com/c/document-start-test', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><head><title>Parsing fixture</title></head><body><h1>Original page content</h1></body></html>' }));
+  await page.goto('https://chatgpt.com/c/document-start-test');
+  await expect(page.locator('#markmind-copy-capture-message')).toContainText('Diagram copy helper enabled in this tab');
+  await expect(page.locator('h1')).toHaveText('Original page content');
+  expect(await page.evaluate(() => (window as any).oldHelperUninstalled)).toBe(true);
+  expect(await page.evaluate(() => (window as any).__markmindDiagramCapture.getReport().helperVersion)).toBe('1.1.0');
+  await page.evaluate(() => {
+    (window as any).__markmindDiagramCapture.uninstall();
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+  });
+  await expect(page.locator('#markmind-copy-capture-panel')).toHaveCount(0);
 });

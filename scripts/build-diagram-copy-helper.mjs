@@ -19,7 +19,7 @@ const code = result.outputFiles[0].text;
 const header = `// ==UserScript==
 // @name         MarkMind diagram copy helper
 // @namespace    https://github.com/SeeSatya/Sandwich
-// @version      1.0.0
+// @version      1.1.0
 // @description  Preserve live diagram SVG when copying ChatGPT responses. No network requests or AI.
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
