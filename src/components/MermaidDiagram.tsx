@@ -1,21 +1,21 @@
 
-import React, { useEffect, useRef, useState } from 'react';
-import mermaid from 'mermaid';
+import React, { useEffect, useState } from 'react';
+import mermaid, { type MermaidConfig } from 'mermaid';
 import { AppTheme } from '../types';
 import { getDiagramEdgeColor } from '../diagrams/colors';
+import { sanitizeDiagramSvg } from '../diagrams/svg';
+
+// Mermaid uses global configuration; initialization and drawing form one job.
+let renderQueue: Promise<void> = Promise.resolve();
+let nextRenderId = 0;
 
 interface MermaidDiagramProps {
   chart: string;
   theme: AppTheme;
 }
 
-const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [svg, setSvg] = useState<string>('');
-  const [error, setError] = useState<string | null>(null);
+const diagramConfig = (theme: AppTheme) => {
   const edgeColor = getDiagramEdgeColor(theme.isDark);
-
-  useEffect(() => {
     // Generate a colorful mermaid theme configuration with proper text contrast
     // Use theme-aware text colors
     const textColor = theme.isDark ? '#f8fafc' : '#1f2937';
@@ -34,18 +34,20 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
       [`cScaleLabel${i}`, lum(c) < 140 ? '#ffffff' : '#1f2937'],
     ]));
 
-    const config = {
+    const config: MermaidConfig = {
       startOnLoad: false,
       theme: 'base' as const,
+      themeCSS: '.node rect { rx: 12px; ry: 12px; } .nodeLabel { font-weight: 600; } .flowchart-link { stroke-linecap: round; stroke-linejoin: round; }',
       themeVariables: {
+        darkMode: theme.isDark,
         ...pieVars,
         ...scaleVars,
         pieStrokeColor: theme.isDark ? '#0f172a' : '#ffffff',
         pieOuterStrokeColor: theme.isDark ? '#0f172a' : '#334155',
         // Primary node styling
-        primaryColor: theme.colors.primary,
+        primaryColor: theme.isDark ? '#00284d' : '#eff6ff',
         primaryTextColor: textColor,
-        primaryBorderColor: theme.colors.primary,
+        primaryBorderColor: theme.isDark ? '#1a3e5f' : '#bfdbfe',
 
         // Secondary elements
         secondaryColor: theme.colors.codeBackground,
@@ -62,9 +64,11 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
         edgeLabelBackground: theme.isDark ? theme.colors.background : '#ffffff',
 
         // Node backgrounds
-        mainBkg: theme.colors.codeBackground || bgColor,
-        nodeBkg: theme.colors.codeBackground || bgColor,
+        mainBkg: theme.isDark ? '#00284d' : '#eff6ff',
+        nodeBkg: theme.isDark ? '#00284d' : '#eff6ff',
         nodeBorder: theme.colors.primary,
+        rowOdd: theme.isDark ? '#00284d' : '#eff6ff',
+        rowEven: theme.isDark ? '#00345d' : '#dbeafe',
 
         // Cluster styling
         clusterBkg: theme.colors.codeBackground || bgColor,
@@ -107,7 +111,7 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
           textColor: textColor
         }
       },
-      securityLevel: 'loose' as const,
+      securityLevel: 'strict' as const,
       flowchart: {
         htmlLabels: true,
         useMaxWidth: true,
@@ -133,129 +137,52 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
         useMaxWidth: true
       }
     };
-    mermaid.initialize(config);
-  }, [theme]);
+  return config;
+};
+
+const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart, theme }) => {
+  const [svg, setSvg] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
-    let renderId: string | null = null;
-
-    const isolateMeasurementHost = (id: string) => {
-      // Mermaid creates a temporary `d${id}` element directly under <body> to
-      // measure the SVG. Leaving it in normal flow adds ~150px to document
-      // height and makes the browser scrollbar repeatedly appear/disappear.
-      const host = document.getElementById(`d${id}`) as HTMLElement | null;
-      if (!host) return;
-      host.style.setProperty('position', 'fixed', 'important');
-      // Keep the host in the viewport so Mermaid can measure HTML labels in
-      // its foreignObjects. `visibility:hidden` / moving it offscreen makes
-      // those labels measure as 0×0 in some browsers. Opacity hides the host
-      // visually while fixed positioning keeps it out of document flow.
-      host.style.setProperty('left', '0', 'important');
-      host.style.setProperty('top', '0', 'important');
-      host.style.setProperty('opacity', '0', 'important');
-      host.style.setProperty('pointer-events', 'none', 'important');
-      host.style.setProperty('z-index', '-1', 'important');
-    };
-
-    const removeMeasurementHost = () => {
-      if (renderId) document.getElementById(`d${renderId}`)?.remove();
-    };
-
+    setSvg('');
+    setError(null);
+    setLoading(true);
     const renderChart = async () => {
-      if (!chart) return;
-
+      if (!active) return;
+      const id = `mermaid-${++nextRenderId}`;
+      const host = document.createElement('div');
+      host.className = 'mermaid-container mermaid-measurement-host';
+      Object.assign(host.style, { position: 'fixed', left: '0', top: '0', opacity: '0', pointerEvents: 'none', zIndex: '-1', width: '800px', margin: '0', padding: '0' });
+      document.body.appendChild(host);
       try {
-        // Preprocess chart to fix common issues
-        let processedChart = chart
-          .trim()
-          // Fix HTML entities that might have been escaped
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/&amp;/g, '&')
-          .replace(/&quot;/g, '"');
-
-        // Leniency: flowcharts require each edge on one line, but users often wrap
-        // a long edge (node on one line, `--> target` on the next). Join a line
-        // that begins with an edge operator back onto the previous line.
-        if (/^\s*(flowchart|graph)\b/.test(processedChart)) {
-          processedChart = processedChart.replace(/\n[ \t]*((?:--+|==+|-\.|<--|<==|--[ox])[^\n]*)/g, ' $1');
-        }
-
-        renderId = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
-        const renderPromise = mermaid.render(renderId, processedChart);
-        isolateMeasurementHost(renderId);
-        let { svg } = await renderPromise;
-
-        // Some chart types (xychart) emit fixed width/height without a
-        // viewBox, so CSS can only crop them, never scale them. Add the
-        // viewBox so the svg scales like an image.
-        if (!/viewBox=/.test(svg)) {
-          const m = /<svg[^>]*?width="([\d.]+)(?:px)?"[^>]*?height="([\d.]+)(?:px)?"/.exec(svg);
-          if (m) svg = svg.replace('<svg', `<svg viewBox="0 0 ${m[1]} ${m[2]}"`);
-        }
-
-        if (active) {
-          setSvg(svg);
-          setError(null);
-        }
+        await document.fonts.ready;
+        if (!active) return;
+        mermaid.initialize(diagramConfig(theme));
+        // Do not decode labels or rewrite edges: the source owns its semantics.
+        const result = await mermaid.render(id, chart.trim(), host);
+        const clean = sanitizeDiagramSvg(result.svg);
+        if (active) setSvg(clean);
       } catch (err) {
-        if (active) {
-          console.error("Mermaid Render Error:", err);
-          setError("Diagram Syntax Error");
-        }
+        if (active) setError(err instanceof Error ? err.message : 'Unable to render this diagram.');
       } finally {
-        removeMeasurementHost();
+        host.remove();
+        if (active) setLoading(false);
       }
     };
-
-    renderChart();
-
-    return () => {
-      active = false;
-      removeMeasurementHost();
-    };
+    renderQueue = renderQueue.then(renderChart, renderChart);
+    return () => { active = false; };
   }, [chart, theme]);
 
-  if (error) {
-    return (
-      <div
-        className="p-6 rounded-2xl text-xs font-mono my-6 print:hidden"
-        style={{
-          backgroundColor: theme.isDark ? 'rgba(127, 29, 29, 0.3)' : '#fef2f2',
-          border: `1px solid ${theme.isDark ? 'rgba(239, 68, 68, 0.3)' : '#fecaca'}`,
-          color: theme.isDark ? '#fca5a5' : '#dc2626'
-        }}
-      >
-        <p className="font-black uppercase tracking-widest mb-2">Mermaid Syntax Error</p>
-        <pre className="opacity-70" style={{ color: 'inherit' }}>{chart}</pre>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="mermaid-container my-6 flex flex-col items-center w-full overflow-hidden p-4 rounded-3xl shadow-inner"
-      style={{
-        backgroundColor: theme.isDark ? `${theme.colors.codeBackground}80` : 'rgba(248, 250, 252, 0.5)',
-        border: `1px solid ${theme.isDark ? theme.colors.border : '#f1f5f9'}`
-      }}
-    >
-      <div
-        className="w-full max-w-full"
-        style={{ width: '100%' }}
-        dangerouslySetInnerHTML={{ __html: svg }}
-      />
-      <style>{`
-        .mermaid-container svg {
-          width: 100% !important;
-          max-width: 100% !important;
-          max-height: 680px !important;
-          height: auto !important;
-        }
-      `}</style>
-    </div>
-  );
+  return <div className="mermaid-container my-6 w-full overflow-hidden p-4 rounded-2xl"
+    style={{ backgroundColor: theme.colors.codeBackground, border: `1px solid ${theme.colors.border || theme.colors.secondary}` }}>
+    {loading ? <p role="status">Rendering diagram…</p> : error ? <div role="alert">
+      <p>Unable to render this Mermaid diagram. Check its source syntax.</p>
+      <details><summary>Diagram source and error</summary><pre className="whitespace-pre-wrap">{chart}</pre><pre className="whitespace-pre-wrap">{error}</pre></details>
+    </div> : <div className="diagram-svg-surface" dangerouslySetInnerHTML={{ __html: svg }} />}
+  </div>;
 };
 
 export default MermaidDiagram;

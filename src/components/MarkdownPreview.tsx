@@ -18,9 +18,10 @@ import {
 } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { AppTheme } from '../types';
 import MermaidDiagram from './MermaidDiagram';
-import RadModelDiagram from './RadModelDiagram';
+import ImportedDiagram from './ImportedDiagram';
+import { mapMarkdownProse, replaceChatGptArtifacts } from '../diagrams/artifacts';
+import { encodeSvg } from '../diagrams/svg';
 import DiagramBlock from './DiagramBlock';
-import { getDiagramEdgeColor } from '../diagrams/colors';
 
 interface MarkdownPreviewProps {
   content: string;
@@ -41,14 +42,14 @@ interface MarkdownPreviewProps {
 
 export const preprocessMarkdown = (text: string, theme?: AppTheme): string => {
   if (!text) return '';
-  const diagramEdgeColor = getDiagramEdgeColor(theme?.isDark ?? true);
+  // Preserve raw SVG before Markdown/TeX parsing.
+  text = mapMarkdownProse(text, (prose) => prose.replace(/<svg\b[^]*?<\/svg>/gi, (svg) => `\n\n\`\`\`chatgpt-svg\n${encodeSvg(svg)}\n\`\`\`\n\n`));
 
   // remark-math uses `$` / `$$` delimiters. Accept the common LaTeX
   // `\(...\)` and `\[...\]` forms too. Use inline delimiters for `\[...\]`
   // because equations often appear inside list paragraphs; `$$` is a block
   // delimiter and would otherwise be treated as literal text there.
-  text = text.split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)/g).map((part, index) => {
-    if (index % 2 === 1) return part;
+  text = mapMarkdownProse(text, (part) => {
     return part
       // Some pasted/generated Markdown contains JSON-style escaped slashes
       // (for example `\\[ ... \\]` and `\\frac`). Restore TeX commands first.
@@ -59,131 +60,9 @@ export const preprocessMarkdown = (text: string, theme?: AppTheme): string => {
         `${indent}$$\n${indent}${formula.trim()}\n${indent}$$`)
       .replace(/\\\[([\s\S]*?)\\\]/g, (_match, formula: string) => `$${formula}$`)
       .replace(/\\\(([\s\S]*?)\\\)/g, (_match, formula: string) => `$${formula}$`);
-  }).join('');
-
-  // ChatGPT sometimes copies a rendered Mermaid graphic as its scoped CSS
-  // followed by the SVG's visible labels, while dropping the actual SVG paths.
-  // The copied style blob omits original edges and node positions, so recover
-  // known diagram structures from their heading and visible labels. Split labels
-  // that were concatenated when HTML was copied.
-  text = text.replace(/^([ \t]*)(?:\\?#chatgpt-mermaid-[^\r\n]*)$/gm, (artifactLine, indent: string) => {
-    const cssEnd = artifactLine.lastIndexOf('}');
-    if (cssEnd < 0) return artifactLine;
-
-    const labelsText = artifactLine.slice(cssEnd + 1).trim();
-    if (!labelsText) return artifactLine;
-
-    const numberedLabels = labelsText
-      .split(/(?=[0-9]+[.)][ \t]*)/)
-      .map((label: string) => label.replace(/^\s*\d+[.)]\s*/, '').trim())
-      .filter(Boolean);
-    const hasNumberedLabels = numberedLabels.length > 1 && /^\s*\d+[.)]\s*/.test(labelsText);
-    const splitLabels = (hasNumberedLabels
-      ? numberedLabels
-      : labelsText.replace(/([a-z0-9])([A-Z])/g, '$1\n$2').split(/\r?\n/)
-    )
-      .map((label: string) => label.trim())
-      .filter(Boolean);
-    const labels: string[] = [];
-    for (const label of splitLabels) {
-      if (label === '/' && labels.length) labels[labels.length - 1] += ' /';
-      else if (labels.length && labels[labels.length - 1].endsWith('/')) labels[labels.length - 1] += ` ${label}`;
-      else labels.push(label);
-    }
-
-    const precedingText = text.slice(0, text.indexOf(artifactLine));
-    if (!labels.length) {
-      return `${indent}> ChatGPT copied this diagram without its node labels. Paste it directly from ChatGPT or provide Mermaid source to preserve the diagram.`;
-    }
-
-    const radStages = ['Requirements Planning', 'User Design', 'Construction', 'Cutover', 'User Feedback', 'Improvements'];
-    const isRadDiagram = /RAD Model/i.test(precedingText) && radStages.every(stage =>
-      labels.some(label => label.toLowerCase() === stage.toLowerCase())
-    );
-    const agileStages = ['Planning', 'Design', 'Development', 'Testing', 'Release', 'Customer Feedback'];
-    const isAgileDiagram = /Agile Process/i.test(precedingText) && agileStages.every(stage =>
-      labels.some(label => label.toLowerCase() === stage.toLowerCase())
-    );
-    const isSpiralDiagram = /Spiral Model/i.test(precedingText);
-
-    let chart: string;
-    if (isRadDiagram) {
-      // Recover the RAD feedback loop and iteration path omitted by the copied text.
-      chart = [
-        'flowchart TB',
-        '  subgraph constructionRow[" "]',
-        '    direction LR',
-        '    C["Construction"]',
-        '  end',
-        '  subgraph designRow[" "]',
-        '    direction LR',
-        '    RP["Requirements Planning"]',
-        '    CUT["Cutover"]',
-        '    IMP(["Improvements"])',
-        '    RP ~~~ CUT',
-        '    CUT ~~~ IMP',
-        '  end',
-        '  subgraph feedbackRow[" "]',
-        '    direction LR',
-        '    UF(["User Feedback"])',
-        '    UD["User Design"]',
-        '    UF ~~~ UD',
-        '  end',
-        '  C --> CUT',
-        '  C -.-> IMP',
-        '  IMP -.-> UD',
-        '  RP --> UD',
-        '  UF -.-> UD',
-        '  UD --> C',
-        '  classDef phase fill:#00284d,stroke:#1f4e94,color:#99ceff,stroke-width:1px,rx:16px,ry:16px',
-        '  classDef feedback fill:#000e1a,stroke:#1a3e5f,color:#99ceff,stroke-width:1px',
-        '  class C,CUT,RP,UD phase',
-        '  class IMP,UF feedback',
-        `  linkStyle default stroke:${diagramEdgeColor},stroke-width:1px`,
-      ].join('\n');
-    } else if (isAgileDiagram) {
-      // The copied ChatGPT artifact retains labels and styling, but not its
-      // SVG edge paths. Reconstruct this known Agile cycle from the heading
-      // and labels: work proceeds through release, then customer feedback
-      // returns to planning for the next iteration.
-      const ids = ['PLAN', 'DESIGN', 'DEV', 'TEST', 'RELEASE', 'FEEDBACK'];
-      const nodeLines = agileStages.map((label, i) => {
-        const escaped = label.replace(/"/g, '\\"');
-        const shape = i === agileStages.length - 1 ? `(["${escaped}"])` : `["${escaped}"]`;
-        return `  ${ids[i]}${shape}`;
-      });
-      const flowLines = ids.slice(1).map((id, i) => `  ${ids[i]} --> ${id}`);
-      chart = [
-        'flowchart LR',
-        ...nodeLines,
-        ...flowLines,
-        '  FEEDBACK -.-> PLAN',
-        '  classDef agilePhase fill:#00284d,stroke:#1f4e94,color:#99ceff,stroke-width:1px,rx:16px,ry:16px',
-        '  classDef agileFeedback fill:#000e1a,stroke:#1a3e5f,color:#99ceff,stroke-width:1px',
-        '  class PLAN,DESIGN,DEV,TEST,RELEASE agilePhase',
-        '  class FEEDBACK agileFeedback',
-        `  linkStyle default stroke:${diagramEdgeColor},stroke-width:1px`,
-      ].join('\n');
-    } else {
-      // Plain-text copies of ChatGPT diagrams often retain CSS and visible
-      // node labels but omit the SVG edge paths. Don't leave that CSS as prose
-      // for every unrecognized model: render the available labels as a useful
-      // Mermaid flow. Spiral models are iterative, so close their phases into
-      // a feedback loop; waterfall phases flow top to bottom.
-      const ids = labels.map((_label, index) => `PHASE${index + 1}`);
-      const safeLabel = (label: string) => label.replace(/["\\]/g, '\\$&').replace(/[\r\n]+/g, ' ');
-      const direction = /waterfall/i.test(precedingText) ? 'TD' : 'LR';
-      const nodes = labels.map((label, index) => `  ${ids[index]}["${safeLabel(label)}"]`);
-      const edges = ids.slice(1).map((id, index) => `  ${ids[index]} --> ${id}`);
-      if (isSpiralDiagram && ids.length > 1) {
-        edges.push(`  ${ids[ids.length - 1]} -.-> ${ids[0]}`);
-      }
-      chart = `flowchart ${direction}\n${[...nodes, ...edges].join('\n')}`;
-    }
-
-    const language = isRadDiagram ? 'chatgpt-rad' : 'mermaid';
-    return `${indent}\`\`\`${language}\n${chart}\n\`\`\``;
   });
+
+  text = replaceChatGptArtifacts(text).text;
 
   // Side-by-side columns: `::: columns` ... `|||` (separator) ... `:::`.
   // Emit flex divs with blank lines around each cell so the inner markdown
@@ -1294,10 +1173,10 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
          
          /* The hidden source, measured pages and visible pages are all real
             .page trees, so one selector owns their typography. */
-         .page :is(p, li, h1, h2, h3, h4, h5, h6, blockquote, table, a, strong, em):not(.html-render-block *) {
+         .page :is(p, li, h1, h2, h3, h4, h5, h6, blockquote, table, a, strong, em):not(.html-render-block *, .mermaid-container *, .diagram-container *) {
              line-height: 1.5 !important;
          }
-         .page :is(p, li, blockquote, td, a, strong, em):not(.html-render-block *) {
+         .page :is(p, li, blockquote, td, a, strong, em):not(.html-render-block *, .mermaid-container *, .diagram-container *) {
              color: ${theme.colors.text} !important;
          }
          /* html-render blocks style themselves — theme must not repaint them */
@@ -1398,16 +1277,16 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
          .pixel-corner.br { bottom: 0; right: 0; transform: scale(-1, -1); }
 
          /* Pixel headings: blocky, with a stepped accent bar */
-         .page.theme-pixelize h1:not(.html-render-block *),
-         .page.theme-pixelize h2:not(.html-render-block *) {
+         .page.theme-pixelize h1:not(.html-render-block *, .mermaid-container *, .diagram-container *),
+         .page.theme-pixelize h2:not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             letter-spacing: 0 !important;
             text-transform: uppercase !important;
             border-bottom: none !important;
             padding-bottom: 0.4em;
             position: relative;
          }
-         .page.theme-pixelize h1:not(.html-render-block *)::after,
-         .page.theme-pixelize h2:not(.html-render-block *)::after {
+         .page.theme-pixelize h1:not(.html-render-block *, .mermaid-container *, .diagram-container *)::after,
+         .page.theme-pixelize h2:not(.html-render-block *, .mermaid-container *, .diagram-container *)::after {
             content: '';
             position: absolute; left: 0; bottom: 0;
             width: 100%; height: 6px;
@@ -1418,7 +1297,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             background-repeat: repeat-x, repeat-x;
             background-position: 0 0, 0 3px;
          }
-         .page.theme-pixelize h3:not(.html-render-block *) {
+         .page.theme-pixelize h3:not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             letter-spacing: 0 !important;
             border-left: 6px solid ${theme.colors.primary} !important;
             padding-left: 0.5em;
@@ -1427,8 +1306,8 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
          /* Pixel punctuation: full stops and commas render as solid squares.
             Achieved with a monospace-adjacent pixel font, so glyphs are
             already blocky — reinforce with tighter word/letter spacing. */
-         .page.theme-pixelize p:not(.html-render-block *),
-         .page.theme-pixelize li:not(.html-render-block *) {
+         .page.theme-pixelize p:not(.html-render-block *, .mermaid-container *, .diagram-container *),
+         .page.theme-pixelize li:not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             word-spacing: -0.02em;
             text-align: left !important;
          }
@@ -1445,10 +1324,17 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             gaps around diagrams. max-height matches the usable A4 content
             height so a diagram can use the full page; the paginator's
             shrink-to-fit scales it down when it doesn't fit the space left. */
+         .mermaid-container {
+            line-height: normal;
+            letter-spacing: normal;
+            text-transform: none;
+         }
+         .mermaid-container p { margin: 0; }
          .mermaid-container svg {
-            max-width: 100%;
-            max-height: 920px;
-            height: auto;
+            width: 100% !important;
+            max-width: 100% !important;
+            max-height: 680px !important;
+            height: auto !important;
             display: block;
             margin: 0 auto;
          }
@@ -1493,7 +1379,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
          }
 
          /* Headers logic */
-         :is(h1, h2, h3, h4, h5, h6):not(.html-render-block *) {
+         :is(h1, h2, h3, h4, h5, h6):not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             font-family: ${theme.fonts.heading} !important; 
             color: ${theme.colors.heading} !important; 
             line-height: 1.2;
@@ -1501,9 +1387,9 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             margin-bottom: 0.8em;
           }
           h1:first-child, h2:first-child, p:first-child { margin-top: 0; }
-          h1:not(.html-render-block *) { font-size: 2.25em !important; font-weight: 800 !important; letter-spacing: -0.025em; }
-          h2:not(.html-render-block *) { font-size: 1.6em !important; font-weight: 700 !important; letter-spacing: -0.025em; border-bottom: 2px solid ${theme.colors.primary}30 !important; padding-bottom: 0.3em; }
-          h3:not(.html-render-block *) {
+          h1:not(.html-render-block *, .mermaid-container *, .diagram-container *) { font-size: 2.25em !important; font-weight: 800 !important; letter-spacing: -0.025em; }
+          h2:not(.html-render-block *, .mermaid-container *, .diagram-container *) { font-size: 1.6em !important; font-weight: 700 !important; letter-spacing: -0.025em; border-bottom: 2px solid ${theme.colors.primary}30 !important; padding-bottom: 0.3em; }
+          h3:not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             font-size: 1.3em !important; 
             font-weight: 700 !important; 
             letter-spacing: -0.02em;
@@ -1511,10 +1397,10 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             padding-left: 0.75em;
             margin-top: 1.8em;
           }
-          h4:not(.html-render-block *) { font-size: 1.15em !important; font-weight: 600 !important; }
-          h5:not(.html-render-block *) { font-size: 1.05em !important; font-weight: 600 !important; }
-          h6:not(.html-render-block *) { font-size: 1em !important; font-weight: 600 !important; text-transform: uppercase; letter-spacing: 0.05em; }
-          p:not(.html-render-block *) {
+          h4:not(.html-render-block *, .mermaid-container *, .diagram-container *) { font-size: 1.15em !important; font-weight: 600 !important; }
+          h5:not(.html-render-block *, .mermaid-container *, .diagram-container *) { font-size: 1.05em !important; font-weight: 600 !important; }
+          h6:not(.html-render-block *, .mermaid-container *, .diagram-container *) { font-size: 1em !important; font-weight: 600 !important; text-transform: uppercase; letter-spacing: 0.05em; }
+          p:not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             margin-bottom: 1.2em;
             line-height: 1.65;
             color: ${theme.colors.text} !important;
@@ -1525,12 +1411,12 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           .page {
             font-size: 12pt !important;
           }
-          .page :is(p, li):not(.html-render-block *) {
+          .page :is(p, li):not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             text-align: justify !important;
             line-height: 1.5 !important;
             font-size: 12pt !important;
           }
-          .page :is(h1, h2, h3, h4, h5, h6):not(.html-render-block *) {
+          .page :is(h1, h2, h3, h4, h5, h6):not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             line-height: 1 !important;
             text-align: left !important;
             letter-spacing: 0 !important;
@@ -1539,11 +1425,11 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             border-left: none !important;
             padding-left: 0 !important;
           }
-          .page h1:not(.html-render-block *) { font-size: 16pt !important; font-weight: 700 !important; }
-          .page h2:not(.html-render-block *) { font-size: 14pt !important; font-weight: 700 !important; }
-          .page h3:not(.html-render-block *) { font-size: 13pt !important; font-weight: 700 !important; }
-          .page :is(h4, h5, h6):not(.html-render-block *) { font-size: 12pt !important; font-weight: 700 !important; }
-          .page :is(table, td, th):not(.html-render-block *) { font-size: 10pt !important; }
+          .page h1:not(.html-render-block *, .mermaid-container *, .diagram-container *) { font-size: 16pt !important; font-weight: 700 !important; }
+          .page h2:not(.html-render-block *, .mermaid-container *, .diagram-container *) { font-size: 14pt !important; font-weight: 700 !important; }
+          .page h3:not(.html-render-block *, .mermaid-container *, .diagram-container *) { font-size: 13pt !important; font-weight: 700 !important; }
+          .page :is(h4, h5, h6):not(.html-render-block *, .mermaid-container *, .diagram-container *) { font-size: 12pt !important; font-weight: 700 !important; }
+          .page :is(table, td, th):not(.html-render-block *, .mermaid-container *, .diagram-container *) { font-size: 10pt !important; }
           ` : ''}
 
           ${theme.name === 'Pixelize' ? `
@@ -1554,25 +1440,25 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             font-size: 15pt !important;
             line-height: 1.45 !important;
           }
-          .page h1:not(.html-render-block *) { font-size: 15pt !important; line-height: 1.5 !important; margin-bottom: 1em; }
-          .page h2:not(.html-render-block *) { font-size: 11.5pt !important; line-height: 1.6 !important; }
-          .page h3:not(.html-render-block *) { font-size: 10pt !important; line-height: 1.6 !important; }
-          .page :is(h4, h5, h6):not(.html-render-block *) { font-size: 8.5pt !important; }
-          .page :is(p, li):not(.html-render-block *) {
+          .page h1:not(.html-render-block *, .mermaid-container *, .diagram-container *) { font-size: 15pt !important; line-height: 1.5 !important; margin-bottom: 1em; }
+          .page h2:not(.html-render-block *, .mermaid-container *, .diagram-container *) { font-size: 11.5pt !important; line-height: 1.6 !important; }
+          .page h3:not(.html-render-block *, .mermaid-container *, .diagram-container *) { font-size: 10pt !important; line-height: 1.6 !important; }
+          .page :is(h4, h5, h6):not(.html-render-block *, .mermaid-container *, .diagram-container *) { font-size: 8.5pt !important; }
+          .page :is(p, li):not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             font-size: 15pt !important;
             line-height: 1.45 !important;
           }
-          .page :is(table, td, th):not(.html-render-block *) {
+          .page :is(table, td, th):not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             font-size: 13pt !important;
           }
-          .page pre:not(.html-render-block *), .page code:not(.html-render-block *) {
+          .page pre:not(.html-render-block *, .mermaid-container *, .diagram-container *), .page code:not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             font-size: 9pt !important;
           }
           ` : ''}
 
 
 
-          table:not(.html-render-block *) {
+          table:not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             width: 100%;
             max-width: 100%;
             margin: 1.5em 0;
@@ -1581,25 +1467,25 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             font-size: 0.92em;
             overflow-wrap: anywhere;
           }
-          thead:not(.html-render-block *) {
+          thead:not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             background-color: ${theme.colors.primary}14;
           }
-          :is(th, td):not(.html-render-block *) {
+          :is(th, td):not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             padding: 0.75em 0.9em;
             border: 1px solid ${theme.colors.border || `${theme.colors.primary}33`};
             text-align: left;
             vertical-align: top;
             line-height: 1.45 !important;
           }
-          th:not(.html-render-block *) {
+          th:not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             color: ${theme.colors.heading} !important;
             font-weight: 800;
             white-space: nowrap;
           }
-          td:not(.html-render-block *) {
+          td:not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             color: ${theme.colors.text} !important;
           }
-          tbody tr:nth-child(even):not(.html-render-block *) {
+          tbody tr:nth-child(even):not(.html-render-block *, .mermaid-container *, .diagram-container *) {
             background-color: ${theme.colors.primary}08;
           }
           .page-content > table {
@@ -1705,9 +1591,6 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                 const language = match ? match[1] : '';
                 const codeContent = String(children).replace(/\n$/, '');
 
-                if (language === 'chatgpt-rad') {
-                  return <RadModelDiagram theme={theme} />;
-                }
 
                 // ```html-render``` or ```html-render:16:9``` — render raw HTML
                 // as a block (like an image), optional aspect ratio after colon.
@@ -1763,19 +1646,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                 }
 
                 if (language === 'chatgpt-svg') {
-                  const svgBase64 = codeContent.trim();
-                  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(svgBase64)) {
-                    return <div className="my-4 text-sm" style={{ color: theme.colors.secondary }}>Invalid ChatGPT diagram clipboard data.</div>;
-                  }
-                  return (
-                    <div className="mermaid-container my-6 w-full overflow-hidden p-4 rounded-3xl" style={{ backgroundColor: theme.colors.codeBackground, border: `1px solid ${theme.colors.border}` }}>
-                      <img
-                        src={`data:image/svg+xml;base64,${svgBase64}`}
-                        alt="ChatGPT diagram"
-                        className="block w-full max-w-full h-auto max-h-[680px] object-contain mx-auto"
-                      />
-                    </div>
-                  );
+                  return <ImportedDiagram source={codeContent} encoded theme={theme} />;
                 }
 
                 if (language === 'diagram') {
@@ -1833,31 +1704,6 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                     </SyntaxHighlighter>
                   </div>
                 );
-              },
-              // ChatGPT's rendered diagrams are SVGs with styles scoped to an
-              // id such as `chatgpt-mermaid-_r_km_`. Keep the whole diagram as
-              // an atomic pagination/export block and let its embedded CSS work.
-              svg: ({ children, ...props }: any) => {
-                const isChatGptMermaid = String(props.id || '').startsWith('chatgpt-mermaid-');
-                const svgElement = <svg {...props}>{children}</svg>;
-                return isChatGptMermaid ? (
-                  <div className="mermaid-container chatgpt-mermaid-container">
-                    {svgElement}
-                    <style>{`
-                      .chatgpt-mermaid-container .edgePath .path,
-                      .chatgpt-mermaid-container .flowchart-link,
-                      .chatgpt-mermaid-container .messageLine0,
-                      .chatgpt-mermaid-container .messageLine1 {
-                        stroke: ${getDiagramEdgeColor(theme.isDark)} !important;
-                      }
-                      .chatgpt-mermaid-container .marker,
-                      .chatgpt-mermaid-container .arrowheadPath {
-                        fill: ${getDiagramEdgeColor(theme.isDark)} !important;
-                        stroke: ${getDiagramEdgeColor(theme.isDark)} !important;
-                      }
-                    `}</style>
-                  </div>
-                ) : svgElement;
               },
               hr: () => !ignoreHr ? <hr className="my-10 border-gray-200" style={{ borderColor: theme.colors.border }} /> : null
             }}

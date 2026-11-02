@@ -209,3 +209,5 @@ If AI Style does not work, confirm `GEMINI_API_KEY` is set before starting or bu
 ## License
 
 This project is licensed under the MIT License. You can use it for personal and commercial projects, but copies or substantial portions of the project must include the original copyright and license notice.
+
+See [DIAGRAM_GUIDE.md](DIAGRAM_GUIDE.md) for copying complete ChatGPT responses, supported Mermaid imports, and recovery of incomplete plain-text diagram copies.

@@ -594,7 +594,7 @@ function App() {
                   value={markdown}
                   onChange={(e) => setMarkdown(e.target.value)}
                   onPaste={(event) => {
-                    const diagram = getChatGptDiagramPaste(event.clipboardData.getData('text/html'), theme.isDark);
+                    const diagram = getChatGptDiagramPaste(event.clipboardData.getData('text/html'), event.clipboardData.getData('text/plain'));
                     if (!diagram) return;
 
                     event.preventDefault();

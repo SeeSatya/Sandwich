@@ -77,18 +77,21 @@ function contrastText(fill: string, fallback: string): string {
   return L < 140 ? '#ffffff' : '#1f2937';
 }
 
-function flattenLabels(svg: SVGSVGElement): SVGSVGElement {
+export function flattenLabels(svg: SVGSVGElement): SVGSVGElement {
   const clone = svg.cloneNode(true) as SVGSVGElement;
   const origFOs = svg.querySelectorAll('foreignObject');
   const cloneFOs = clone.querySelectorAll('foreignObject');
   cloneFOs.forEach((fo, i) => {
-    const orig = origFOs[i] as HTMLElement | undefined;
-    const labelEl = orig?.querySelector('div,span,p') as HTMLElement | null;
-    const lines = Array.from(fo.querySelectorAll('span,div,p'))
-      .map(n => (n.textContent || '').trim())
-      .filter(Boolean);
-    const text = (lines.length ? Array.from(new Set(lines)).pop()! : (fo.textContent || '')).trim();
-    if (!text) { fo.remove(); return; }
+    const orig = origFOs[i];
+    const labelEl = (orig?.querySelector('p') || orig?.querySelector('span') || orig?.querySelector('div')) as HTMLElement | null;
+    const readText = (node: Node): string => {
+      if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
+      if (node instanceof Element && node.localName === 'br') return '\n';
+      const content = Array.from(node.childNodes).map(readText).join('');
+      return node instanceof Element && /^(?:p|div|li)$/.test(node.localName) ? `\n${content}\n` : content;
+    };
+    const lines = readText(fo).split(/\r?\n/).map((line) => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    if (!lines.length) { fo.remove(); return; }
     const cs = labelEl ? getComputedStyle(labelEl) : null;
     // Local box coords; the <text> is inserted in the FO's own parent so it
     // inherits that group's transform — correct for flowchart/state/mindmap/etc.
@@ -98,15 +101,47 @@ function flattenLabels(svg: SVGSVGElement): SVGSVGElement {
     const h = parseFloat(fo.getAttribute('height') || '0');
     const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     t.setAttribute('x', String(x + w / 2));
-    t.setAttribute('y', String(y + h / 2));
+    const fontSize = parseFloat(cs?.fontSize || '14') || 14;
+    const lineHeight = parseFloat(cs?.lineHeight || '') || fontSize * 1.2;
+    // Explicit HTML breaks and paragraphs are preserved. Wrap long labels to
+    // the measured label box using the same font as the browser preview.
+    const measure = document.createElement('canvas').getContext('2d');
+    if (measure) measure.font = `${cs?.fontWeight || '400'} ${fontSize}px ${cs?.fontFamily || 'sans-serif'}`;
+    const wrapped = lines.flatMap((line) => {
+      const output: string[] = [];
+      let current = '';
+      line.split(' ').forEach((word) => {
+        const next = current ? `${current} ${word}` : word;
+        if (current && measure && w > 0 && measure.measureText(next).width > w) { output.push(current); current = ''; }
+        if (measure && w > 0 && measure.measureText(word).width > w) {
+          // A long identifier or text without spaces must fit its label box too.
+          for (const character of Array.from(word)) {
+            if (current && measure.measureText(current + character).width > w) { output.push(current); current = ''; }
+            current += character;
+          }
+        } else current = current ? `${current} ${word}` : word;
+      });
+      if (current) output.push(current);
+      return output;
+    });
+    const fit = h > 0 ? Math.min(1, h / (wrapped.length * lineHeight)) : 1;
+    const fittedLineHeight = lineHeight * fit;
+    t.setAttribute('y', String(y + h / 2 - (wrapped.length - 1) * fittedLineHeight / 2));
     t.setAttribute('text-anchor', 'middle');
     t.setAttribute('dominant-baseline', 'central');
     // Contrast against the node's own fill; fall back to the live computed color.
     const fill = orig ? nodeFill(orig) : null;
     t.setAttribute('fill', fill ? contrastText(fill, cs?.color || '#1f2937') : (cs?.color || '#1f2937'));
-    t.setAttribute('font-size', cs?.fontSize || '14px');
-    t.setAttribute('font-family', 'sans-serif');
-    t.textContent = text;
+    t.setAttribute('font-size', `${fontSize * fit}px`);
+    t.setAttribute('font-family', cs?.fontFamily || 'sans-serif');
+    t.setAttribute('font-weight', cs?.fontWeight || '400');
+    wrapped.forEach((line, index) => {
+      const span = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+      span.setAttribute('x', String(x + w / 2));
+      span.setAttribute('dy', index ? String(fittedLineHeight) : '0');
+      span.textContent = line;
+      t.appendChild(span);
+    });
     fo.parentNode?.replaceChild(t, fo);
   });
   return clone;
@@ -160,6 +195,7 @@ function inlineRuns(node: Node, theme: AppTheme, base: RunBase = {}, fmt: { b?: 
     if (child.nodeType !== Node.ELEMENT_NODE) return;
     const el = child as HTMLElement;
     const tag = el.tagName.toUpperCase();
+    if (tag === 'STYLE' || tag === 'SCRIPT' || tag === 'SVG' || el.classList.contains('mermaid-container') || el.classList.contains('diagram-container')) return;
     if (tag === 'BR') { out.push(new TextRun({ break: 1 })); return; }
     if (tag === 'INPUT' && (el as HTMLInputElement).type === 'checkbox') {
       const checked = (el as HTMLInputElement).checked || el.hasAttribute('checked');
@@ -181,7 +217,29 @@ function inlineRuns(node: Node, theme: AppTheme, base: RunBase = {}, fmt: { b?: 
   return out;
 }
 
-const HSIZE: Record<string, number> = { H1: 36, H2: 28, H3: 24, H4: 20, H5: 18, H6: 16 }; // half-points
+// Inline text can surround diagram blocks inside quotes, cells, or wrappers.
+// Keep these runs in order without passing SVG/style markup to inlineRuns.
+const isInlineNode = (node: Node): boolean => node.nodeType === Node.TEXT_NODE ||
+  node instanceof Element && /^(?:A|ABBR|B|BR|CODE|DEL|EM|I|INPUT|KBD|MARK|S|SMALL|SPAN|STRONG|SUB|SUP|U)$/.test(node.tagName.toUpperCase()) &&
+  !node.querySelector('svg, .mermaid-container, .diagram-container, pre, table, ul, ol');
+
+async function childBlocksToDocx(el: HTMLElement, theme: AppTheme, maxW: number, quoted = false): Promise<any[]> {
+  const out: any[] = [];
+  let inline = document.createElement('p');
+  const flush = async () => {
+    if (inline.textContent?.trim() || inline.querySelector('br,input')) out.push(...await blockToDocx(inline, theme, maxW, quoted));
+    inline = document.createElement('p');
+  };
+  for (const node of Array.from(el.childNodes)) {
+    if (isInlineNode(node)) inline.append(node.cloneNode(true));
+    else if (node instanceof HTMLElement || node instanceof SVGElement) {
+      await flush();
+      out.push(...await blockToDocx(node as HTMLElement, theme, maxW, quoted));
+    }
+  }
+  await flush();
+  return out;
+}
 
 // Preserve syntax highlighting: walk the highlighter's token <span>s keeping each
 // token's color, split into lines, skip the line-number gutter + header label.
@@ -220,7 +278,7 @@ function codeToDocx(wrapper: HTMLElement, theme: AppTheme): Paragraph[] {
 }
 
 // --- block elements ---------------------------------------------------------
-async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W): Promise<any[]> {
+async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W, quoted = false): Promise<any[]> {
   const tag = el.tagName.toUpperCase();
   const headFont = theme.fonts.heading.replace(/['"]/g, '').split(',')[0].trim();
   const bodyFont = theme.fonts.body.replace(/['"]/g, '').split(',')[0].trim();
@@ -231,7 +289,7 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W): Prom
   if (el.classList.contains('md-columns')) {
     const none = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
     const cols = Array.from(el.children).filter(c => (c as HTMLElement).classList.contains('md-column')) as HTMLElement[];
-    const colW = Math.round(MAX_W / Math.max(cols.length, 1)) - 24; // cap diagrams to their cell
+    const colW = Math.round(maxW / Math.max(cols.length, 1)) - 24; // cap diagrams to their cell
     const cells: TableCell[] = [];
     for (const col of cols) {
       const cc: any[] = [];
@@ -250,9 +308,11 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W): Prom
   }
 
   // Mermaid / generated diagram → vector SVG (+ PNG fallback)
-  const svg = el.classList.contains('mermaid-container')
-    ? el.querySelector('svg')
-    : el.querySelector('.mermaid-container svg');
+  // Only the diagram itself is atomic. A quote, cell, or list can contain
+  // prose and multiple diagrams, all of which must be exported in order.
+  const svg = tag === 'SVG' ? el :
+    el.classList.contains('mermaid-container') || el.classList.contains('diagram-container')
+      ? el.querySelector('svg') : null;
   if (svg) {
     const rect = svg.getBoundingClientRect();
     const vb = svg.getAttribute('viewBox')?.split(/\s+/).map(Number);
@@ -291,6 +351,9 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W): Prom
   }
 
   if (tag === 'P' || tag === 'BLOCKQUOTE') {
+    if (Array.from(el.childNodes).some(node => node instanceof Element && !isInlineNode(node))) {
+      return childBlocksToDocx(el, theme, tag === 'BLOCKQUOTE' ? Math.max(1, maxW - 32) : maxW, quoted || tag === 'BLOCKQUOTE');
+    }
     const imgs = Array.from(el.querySelectorAll('img'));
     if (imgs.length && el.textContent?.trim() === '') {
       const out: any[] = [];
@@ -304,19 +367,19 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W): Prom
       // Academic: 12pt justified, 1.5 line spacing.
       alignment: academic && tag === 'P' ? AlignmentType.JUSTIFIED : undefined,
       spacing: academic ? { after: 160, line: 360 } : { after: 160, line: 276 },
-      indent: tag === 'BLOCKQUOTE' ? { left: 480 } : undefined,
-      border: tag === 'BLOCKQUOTE' ? { left: { style: BorderStyle.SINGLE, size: 18, color: hex(theme.colors.primary), space: 12 } } : undefined,
+      indent: quoted || tag === 'BLOCKQUOTE' ? { left: 480 } : undefined,
+      border: quoted || tag === 'BLOCKQUOTE' ? { left: { style: BorderStyle.SINGLE, size: 18, color: hex(theme.colors.primary), space: 12 } } : undefined,
       children: inlineRuns(el, theme, { font: bodyFont, color: hex(theme.colors.text), size: academic ? 24 : undefined }),
     })];
   }
 
-  if (tag === 'UL' || tag === 'OL') return listToDocx(el, theme, tag === 'OL', 0);
+  if (tag === 'UL' || tag === 'OL') return listToDocx(el, theme, tag === 'OL', 0, maxW);
 
-  if (tag === 'PRE' || el.querySelector('pre') || el.classList.contains('code-block-wrapper')) {
+  if (tag === 'PRE' || el.classList.contains('code-block-wrapper')) {
     return codeToDocx(el, theme);
   }
 
-  if (tag === 'TABLE') return [tableToDocx(el, theme)];
+  if (tag === 'TABLE') return [await tableToDocx(el, theme, maxW)];
 
   if (tag === 'HR') return [new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: hex(theme.colors.border || theme.colors.secondary) } }, spacing: { after: 200 } })];
 
@@ -326,49 +389,74 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W): Prom
     return p ? [new Paragraph({ alignment: AlignmentType.CENTER, children: [new ImageRun({ type: 'png', data: p.data, transformation: { width: p.w, height: p.h } } as any)] })] : [];
   }
 
-  // wrapper div etc — recurse into children
-  const out: any[] = [];
-  for (const c of Array.from(el.children)) out.push(...await blockToDocx(c as HTMLElement, theme, maxW));
-  return out;
+  if (tag === 'STYLE' || tag === 'SCRIPT') return [];
+  // Wrapper divs may have direct text as well as child blocks.
+  return childBlocksToDocx(el, theme, maxW, quoted);
 }
 
-function listToDocx(list: HTMLElement, theme: AppTheme, ordered: boolean, level: number): Paragraph[] {
+async function listToDocx(list: HTMLElement, theme: AppTheme, ordered: boolean, level: number, maxW: number): Promise<any[]> {
   const bodyFont = theme.fonts.body.replace(/['"]/g, '').split(',')[0].trim();
   const academic = isAcademic(theme);
-  const out: Paragraph[] = [];
-  Array.from(list.children).forEach(li => {
-    if (li.tagName.toUpperCase() !== 'LI') return;
-    const nested = Array.from(li.children).filter(c => /^(UL|OL)$/.test(c.tagName.toUpperCase())) as HTMLElement[];
-    // inline content of the li, excluding nested lists
-    const tmp = li.cloneNode(true) as HTMLElement;
-    tmp.querySelectorAll('ul,ol').forEach(n => n.remove());
-    out.push(new Paragraph({
-      spacing: academic ? { after: 80, line: 360 } : { after: 80 },
-      ...(ordered ? { numbering: { reference: 'num', level } } : { bullet: { level } }),
-      children: inlineRuns(tmp, theme, { font: bodyFont, color: hex(theme.colors.text), size: academic ? 24 : undefined }),
-    }));
-    nested.forEach(n => out.push(...listToDocx(n, theme, n.tagName.toUpperCase() === 'OL', level + 1)));
-  });
+  const out: any[] = [];
+  for (const li of Array.from(list.children)) {
+    if (li.tagName.toUpperCase() !== 'LI') continue;
+    let firstParagraph = true;
+    let inline = document.createElement('p');
+    const flush = () => {
+      if (!inline.textContent?.trim() && !inline.querySelector('br,input')) return;
+      out.push(new Paragraph({
+        spacing: academic ? { after: 80, line: 360 } : { after: 80 },
+        ...(firstParagraph
+          ? ordered ? { numbering: { reference: 'num', level: Math.min(level, 4) } } : { bullet: { level: Math.min(level, 8) } }
+          : { indent: { left: 720 * (level + 1) } }),
+        children: inlineRuns(inline, theme, { font: bodyFont, color: hex(theme.colors.text), size: academic ? 24 : undefined }),
+      }));
+      firstParagraph = false;
+      inline = document.createElement('p');
+    };
+    for (const node of Array.from(li.childNodes)) {
+      if (isInlineNode(node)) inline.append(node.cloneNode(true));
+      else if (node instanceof HTMLElement && node.tagName === 'P' && Array.from(node.childNodes).every(isInlineNode)) {
+        flush();
+        Array.from(node.childNodes).forEach(child => inline.append(child.cloneNode(true)));
+        flush();
+      } else if (node instanceof HTMLElement || node instanceof SVGElement) {
+        flush();
+        if (/^(UL|OL)$/.test(node.tagName.toUpperCase())) {
+          out.push(...await listToDocx(node as HTMLElement, theme, node.tagName.toUpperCase() === 'OL', level + 1, Math.max(1, maxW - 24)));
+        } else out.push(...await blockToDocx(node as HTMLElement, theme, Math.max(1, maxW - 24)));
+      }
+    }
+    flush();
+  }
   return out;
 }
 
-function tableToDocx(table: HTMLElement, theme: AppTheme): Table {
+async function tableToDocx(table: HTMLElement, theme: AppTheme, maxW: number): Promise<Table> {
   const bodyFont = theme.fonts.body.replace(/['"]/g, '').split(',')[0].trim();
   const border = hex(theme.colors.border || theme.colors.secondary);
   const academic = isAcademic(theme);
-  // Soft tint of primary so header text stays readable (solid primary can be black).
   const headFill = tint(theme.colors.primary, 0.82);
-  const rows = Array.from(table.querySelectorAll('tr')).map((tr, ri) => new TableRow({
-    children: Array.from(tr.children).map(cell => {
+  // Descendant queries would include rows from tables nested in a cell.
+  const sourceRows = Array.from(table.querySelectorAll(':scope > tr, :scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr'));
+  const columns = Math.max(1, ...sourceRows.map(row => row.children.length));
+  const cellW = Math.max(1, maxW / columns - 12);
+  const rows: TableRow[] = [];
+  for (const tr of sourceRows) {
+    const cells: TableCell[] = [];
+    for (const cell of Array.from(tr.children)) {
       const isHead = cell.tagName.toUpperCase() === 'TH';
-      return new TableCell({
+      const mixed = Array.from(cell.childNodes).some(node => node instanceof Element && !isInlineNode(node));
+      const content = mixed ? await childBlocksToDocx(cell as HTMLElement, theme, cellW) : [new Paragraph({
+        children: inlineRuns(cell as HTMLElement, theme, { font: bodyFont, color: hex(isHead ? theme.colors.heading : theme.colors.text), bold: isHead, size: academic ? 21 : undefined }),
+      })];
+      cells.push(new TableCell({
         shading: isHead ? { fill: headFill } : undefined,
-        children: [new Paragraph({
-          children: inlineRuns(cell as HTMLElement, theme, { font: bodyFont, color: hex(isHead ? theme.colors.heading : theme.colors.text), bold: isHead, size: academic ? 21 : undefined }),
-        })],
-      });
-    }),
-  }));
+        children: content.length ? content : [new Paragraph({})],
+      }));
+    }
+    rows.push(new TableRow({ children: cells }));
+  }
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows,
@@ -390,52 +478,73 @@ export async function exportDocx(
   const source = document.getElementById('markdown-source');
   if (!source) return;
 
-  const blocks = Array.from(source.children).filter(
-    el => (el as HTMLElement).textContent?.trim() !== 'Generated Diagram',
-  );
-  const children: any[] = [];
-  for (let i = 0; i < blocks.length; i++) {
-    onProgress?.(Math.round((i / blocks.length) * 90), `Converting content ${i + 1}/${blocks.length}…`);
-    children.push(...await blockToDocx(blocks[i] as HTMLElement, theme));
-    await new Promise(r => setTimeout(r)); // yield so the progress bar can paint
+  // Progress updates rerender the editor and can detach its SVGs mid-export.
+  // Keep an attached snapshot so layout and computed label styles remain valid
+  // while each diagram is converted asynchronously.
+  const snapshot = source.cloneNode(true) as HTMLElement;
+  snapshot.removeAttribute('id');
+  snapshot.querySelectorAll('script, iframe, object, embed, audio, video').forEach(node => node.remove());
+  const host = document.createElement('div');
+  host.className = `${source.parentElement?.className || 'page'} docx-export-snapshot`;
+  host.setAttribute('aria-hidden', 'true');
+  const pageWidth = source.parentElement?.offsetWidth || source.getBoundingClientRect().width || MAX_W;
+  Object.assign(host.style, { opacity: '0', pointerEvents: 'none', zIndex: '-1', width: `${pageWidth}px` });
+  host.style.setProperty('position', 'fixed', 'important');
+  host.style.setProperty('left', '0', 'important');
+  host.style.setProperty('top', '0', 'important');
+  host.style.setProperty('transform', 'none', 'important');
+  host.append(snapshot);
+  document.body.append(host);
+  try {
+    const blocks = Array.from(snapshot.children).filter(
+      el => (el as HTMLElement).textContent?.trim() !== 'Generated Diagram',
+    );
+    const children: any[] = [];
+    for (let i = 0; i < blocks.length; i++) {
+      onProgress?.(Math.round((i / blocks.length) * 90), `Converting content ${i + 1}/${blocks.length}…`);
+      children.push(...await blockToDocx(blocks[i] as HTMLElement, theme));
+      await new Promise(r => setTimeout(r)); // yield so the progress bar can paint
+    }
+    onProgress?.(95, 'Packaging document…');
+
+    const academic = isAcademic(theme);
+    // Academic margins (twips): left 1.5in=2160, right/top/bottom 1in=1440.
+    const section: any = { children };
+    if (academic) {
+      section.properties = { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 2160 } } };
+      section.footers = {
+        default: new Footer({
+          children: [new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ children: [PageNumber.CURRENT], font: 'Times New Roman', size: 24 })],
+          })],
+        }),
+      };
+    }
+
+    const doc = new Document({
+      // Carry the theme background so dark themes (light text) stay readable in Word,
+      // matching the on-screen preview instead of light-on-white.
+      background: { color: hex(theme.colors.background) },
+      numbering: {
+        config: [{
+          reference: 'num',
+          levels: Array.from({ length: 5 }, (_, l) => ({
+            level: l, format: 'decimal' as any, text: `%${l + 1}.`, alignment: AlignmentType.START,
+          })),
+        }],
+      },
+      sections: [section],
+    });
+
+    const blob = await Packer.toBlob(doc);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'document.docx';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    onProgress?.(100, 'Done');
+  } finally {
+    host.remove();
   }
-  onProgress?.(95, 'Packaging document…');
-
-  const academic = isAcademic(theme);
-  // Academic margins (twips): left 1.5in=2160, right/top/bottom 1in=1440.
-  const section: any = { children };
-  if (academic) {
-    section.properties = { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 2160 } } };
-    section.footers = {
-      default: new Footer({
-        children: [new Paragraph({
-          alignment: AlignmentType.CENTER,
-          children: [new TextRun({ children: [PageNumber.CURRENT], font: 'Times New Roman', size: 24 })],
-        })],
-      }),
-    };
-  }
-
-  const doc = new Document({
-    // Carry the theme background so dark themes (light text) stay readable in Word,
-    // matching the on-screen preview instead of light-on-white.
-    background: { color: hex(theme.colors.background) },
-    numbering: {
-      config: [{
-        reference: 'num',
-        levels: Array.from({ length: 5 }, (_, l) => ({
-          level: l, format: 'decimal' as any, text: `%${l + 1}.`, alignment: AlignmentType.START,
-        })),
-      }],
-    },
-    sections: [section],
-  });
-
-  const blob = await Packer.toBlob(doc);
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'document.docx';
-  a.click();
-  URL.revokeObjectURL(a.href);
-  onProgress?.(100, 'Done');
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import ELK from 'elkjs/lib/elk.bundled.js';
+import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
 import {
   DiagramDefinition,
   DiagramNode,
@@ -81,7 +81,7 @@ const createFallbackLayout = (data: DiagramDefinition) => {
 
 const layoutWithElk = async (data: DiagramDefinition) => {
   const defaults = getDiagramTypeDefaults(data.type);
-  const graph = {
+  const graph: ElkNode = {
     id: 'root',
     layoutOptions: {
       'elk.algorithm': 'layered',
@@ -334,7 +334,7 @@ const DiagramRenderer: React.FC<DiagramRendererProps> = ({ data, theme }) => {
           fontSize="10"
           fontWeight="800"
           letterSpacing="1.4"
-          textTransform="uppercase"
+          style={{ textTransform: 'uppercase' }}
         >
           {data.type}
         </text>

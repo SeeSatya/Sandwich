@@ -35,3 +35,7 @@ dist-ssr
 *.rar
 .claude/
 
+
+# Browser test artifacts
+/test-results/
+/playwright-report/
