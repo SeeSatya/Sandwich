@@ -23,7 +23,7 @@ test('actual pasted CSS copies offer explicit recovery without automatic request
   for (const fixture of copiedDiagrams) {
     await page.locator('textarea').fill(fixture.markdown);
     await expect(panel(page)).toContainText('This copy lost its arrows');
-    await expect(panel(page).getByRole('button', { name: 'Reconstruct diagrams', exact: true })).toBeDisabled();
+    await expect(panel(page).getByRole('button', { name: 'Reconstruct diagrams', exact: true })).toBeEnabled();
     await expect(page.locator('#markdown-source')).toContainText('Diagram data missing');
   }
   expect(calls).toBe(0);
@@ -39,6 +39,7 @@ test('multi-diagram recovery applies validated editable source together, with un
     await route.fulfill({ json: modelResponse(graphFor(copiedDiagrams[requests.length - 1])) });
   });
   await page.locator('textarea').fill(original);
+  await panel(page).getByLabel('Reconstruction provider').selectOption('gemini');
   await panel(page).getByLabel('Gemini API key (this session only)').fill(fakeKey);
   await panel(page).getByRole('button', { name: 'Reconstruct diagrams', exact: true }).click();
   await expect(panel(page).getByRole('status')).toContainText('Reconstructed 3 diagrams');
@@ -108,6 +109,7 @@ test('copied edge labels retain their roles and original text order', async ({ p
     await route.fulfill({ json: modelResponse(labeledDecisionCopy.graph) });
   });
   await page.locator('textarea').fill(labeledDecisionCopy.markdown);
+  await panel(page).getByLabel('Reconstruction provider').selectOption('gemini');
   await panel(page).getByLabel('Gemini API key (this session only)').fill(fakeKey);
   await panel(page).getByRole('button', { name: 'Reconstruct diagrams', exact: true }).click();
   await expect(panel(page).getByRole('status')).toContainText('Reconstructed 1 diagram');
@@ -148,6 +150,7 @@ test('edits during a pending request cancel it and preserve the new document', a
     await route.fulfill({ json: modelResponse(graphFor(copiedDiagrams[0])) }).catch(() => {});
   });
   await page.locator('textarea').fill(copiedDiagrams[0].markdown);
+  await panel(page).getByLabel('Reconstruction provider').selectOption('gemini');
   await panel(page).getByLabel('Gemini API key (this session only)').fill(fakeKey);
   await panel(page).getByRole('button', { name: 'Reconstruct diagrams', exact: true }).click();
   await expect.poll(() => started).toBeTruthy();
@@ -167,6 +170,7 @@ test('failure on a later diagram keeps all originals and allows a retry', async 
   });
   const original = copiedDiagrams.slice(0, 2).map(fixture => fixture.markdown).join('\n\n');
   await page.locator('textarea').fill(original);
+  await panel(page).getByLabel('Reconstruction provider').selectOption('gemini');
   await panel(page).getByLabel('Gemini API key (this session only)').fill(fakeKey);
   await panel(page).getByRole('button', { name: 'Reconstruct diagrams', exact: true }).click();
   await expect(panel(page).getByRole('alert')).toContainText('quota or rate limit');
@@ -181,6 +185,7 @@ test('cancel and timeout preserve the source and permit another request', async 
   await page.clock.install();
   await page.route(api, async () => { /* Deliberately pending until aborted. */ });
   await page.locator('textarea').fill(copiedDiagrams[0].markdown);
+  await panel(page).getByLabel('Reconstruction provider').selectOption('gemini');
   await panel(page).getByLabel('Gemini API key (this session only)').fill(fakeKey);
   await panel(page).getByRole('button', { name: 'Reconstruct diagrams', exact: true }).click();
   await panel(page).getByRole('button', { name: 'Cancel reconstruction', exact: true }).click();

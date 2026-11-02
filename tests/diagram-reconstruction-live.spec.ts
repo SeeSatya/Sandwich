@@ -5,6 +5,7 @@ import { labeledDecisionCopy } from './fixtures/labeled-decision-copy';
 
 // A private file supplied by the test operator; never put a key in the repo.
 const secretFile = process.env.DIAGRAM_GEMINI_SECRET_FILE;
+const freeProvider = process.env.DIAGRAM_LIVE_PROVIDER === 'openai';
 const model = process.env.DIAGRAM_GEMINI_MODEL;
 const decisionLabels = new Map(labeledDecisionCopy.graph.nodes.map(node => [node.id, node.label]));
 const fixtures = [
@@ -18,7 +19,7 @@ const fixtures = [
 
 for (const [index, fixture] of fixtures.entries()) {
   test(`live inference preserves reference connections: ${fixture.heading}`, async ({ page }, testInfo) => {
-    test.skip(!secretFile, 'Real reconstruction requires a privately supplied Gemini key; mocks do not verify graph quality.');
+    test.skip(!freeProvider && !secretFile, 'Real reconstruction requires a privately supplied Gemini key; mocks do not verify graph quality.');
     test.setTimeout(150000);
     await page.goto('/', { waitUntil: 'commit', timeout: 60000 });
     await page.locator('textarea').waitFor({ state: 'visible', timeout: 60000 });
@@ -26,14 +27,17 @@ for (const [index, fixture] of fixtures.entries()) {
     await page.locator('textarea').fill(fixture.markdown);
     const panel = page.getByRole('region', { name: 'Diagram reconstruction' });
     // Never assert/log the key's value or save traces containing request headers.
-    await panel.getByLabel('Gemini API key (this session only)').fill(readFileSync(secretFile!, 'utf8').trim());
+    if (!freeProvider) {
+      await panel.getByLabel('Reconstruction provider').selectOption('gemini');
+      await panel.getByLabel('Gemini API key (this session only)').fill(readFileSync(secretFile!, 'utf8').trim());
+    }
     if (model) {
       await panel.getByText('Model settings', { exact: true }).click();
-      await panel.getByLabel('Gemini model', { exact: true }).fill(model);
+      await panel.getByLabel(freeProvider ? 'AI model ID (optional)' : 'Gemini model', { exact: true }).fill(model);
     }
     await panel.getByRole('button', { name: 'Reconstruct diagrams', exact: true }).click();
     await expect(panel.getByRole('status')).toContainText('Reconstructed 1 diagram', { timeout: 70000 });
-    await panel.getByRole('button', { name: 'Clear key', exact: true }).click();
+    if (!freeProvider) await panel.getByRole('button', { name: 'Clear key', exact: true }).click();
     const svg = page.locator('#markdown-source .mermaid-container svg');
     await expect(svg).toHaveCount(1, { timeout: 45000 });
     await expect(page.locator('.markdown-pages .mermaid-container svg')).toHaveCount(1, { timeout: 45000 });

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagram copy check</title>
+<style>
+  body { max-width: 780px; margin: 48px auto; padding: 0 24px; font: 16px/1.6 system-ui, sans-serif; color: #172033; background: #f8fafc; }
+  textarea, pre { box-sizing: border-box; width: 100%; padding: 16px; border: 1px solid #cbd5e1; border-radius: 10px; background: white; }
+  textarea { min-height: 100px; font: inherit; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+  button { padding: 10px 16px; border: 0; border-radius: 8px; background: #1d4ed8; color: white; font: inherit; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+</style>
+<h1>Diagram copy check</h1>
+<p>Use ChatGPT’s Copy response button, then paste here. This checks whether the clipboard contains Mermaid source, a complete SVG, or only diagram styling and labels.</p>
+<p>The report contains format names, sizes, and diagram markers. It stays in this page until you choose to copy it.</p>
+<p>SVG markers can also come from icons. Their presence is a clue for further inspection, not proof that the complete diagram survived.</p>
+<label for="paste">Paste the copied response</label>
+<textarea id="paste" placeholder="Paste here to inspect the clipboard formats." spellcheck="false"></textarea>
+<p id="status" role="status"></p>
+<pre id="report">No paste inspected yet.</pre>
+<button id="copy" disabled>Copy format report</button>
+<script>
+  let report = '';
+  const status = document.getElementById('status');
+  document.getElementById('paste').addEventListener('paste', event => {
+    const clipboard = event.clipboardData;
+    if (!clipboard) return;
+    event.preventDefault();
+    const plain = clipboard.getData('text/plain');
+    const html = clipboard.getData('text/html');
+    const inspect = text => ({
+      bytes: new TextEncoder().encode(text).byteLength,
+      mermaidFences: (text.match(/(?:`{3,}|~{3,})(?:mermaid|chatgpt-mermaid)\b/gi) || []).length,
+      svgOpeningTags: (text.match(/<svg\b/gi) || []).length,
+      svgClosingTags: (text.match(/<\/svg\s*>/gi) || []).length,
+      svgPathTags: (text.match(/<path\b/gi) || []).length,
+      svgViewBoxes: (text.match(/\bviewBox\s*=/gi) || []).length,
+      escapedSvgMarkup: /&lt;svg\b/i.test(text),
+      svgDataUris: /data:image\/svg\+xml[;,]/i.test(text),
+      mermaidSourceAttributes: /\bdata-mermaid-source\s*=/i.test(text),
+      chatgptCssArtifacts: /\\?#chatgpt-mermaid-[^\r\n{]*\{/.test(text),
+    });
+    report = JSON.stringify({ clipboardTypes: Array.from(clipboard.types), plainText: inspect(plain), richHtml: inspect(html) }, null, 2);
+    document.getElementById('report').textContent = report;
+    document.getElementById('copy').disabled = false;
+    event.currentTarget.value = '';
+    status.textContent = 'Clipboard formats inspected. Copy the report to share the result.';
+  });
+  document.getElementById('copy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(report);
+      status.textContent = 'Format report copied.';
+    } catch {
+      status.textContent = 'Select and copy the report below.';
+    }
+  });
+</script>
+</html>

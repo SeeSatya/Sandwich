@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { extractChatGptArtifacts } from '../diagrams/artifacts';
-import { applyReconstructions, canReconstructArtifact, DEFAULT_RECONSTRUCTION_MODEL, reconstructArtifact } from '../services/diagramReconstruction';
+import { applyReconstructions, canReconstructArtifact, DEFAULT_RECONSTRUCTION_MODEL, discoverReconstructionModels, reconstructArtifact, type ReconstructionProvider } from '../services/diagramReconstruction';
 
 interface Props {
   content: string;
@@ -12,7 +12,9 @@ const DiagramReconstructionPanel: React.FC<Props> = ({ content, onReplace }) => 
   const artifacts = useMemo(() => extractChatGptArtifacts(content), [content]);
   const eligible = artifacts.filter(canReconstructArtifact);
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState(DEFAULT_RECONSTRUCTION_MODEL);
+  const [provider, setProvider] = useState<ReconstructionProvider>('openai');
+  const [model, setModel] = useState('');
+  const [geminiModel, setGeminiModel] = useState(DEFAULT_RECONSTRUCTION_MODEL);
   const [progress, setProgress] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -30,7 +32,7 @@ const DiagramReconstructionPanel: React.FC<Props> = ({ content, onReplace }) => 
   }, [content]);
 
   const reconstruct = async () => {
-    if (operation.current || !eligible.length || !apiKey.trim()) return;
+    if (operation.current || !eligible.length || (provider === 'gemini' && !apiKey.trim())) return;
     const snapshot = contentRef.current;
     const job = { snapshot, controller: new AbortController() };
     operation.current = job;
@@ -38,10 +40,16 @@ const DiagramReconstructionPanel: React.FC<Props> = ({ content, onReplace }) => 
     setMessage('');
     setProgress('Starting reconstruction…');
     try {
+      let selectedModel = provider === 'gemini' ? geminiModel.trim() : model.trim();
+      if (provider === 'openai' && !selectedModel) {
+        setProgress('Finding available reconstruction models…');
+        selectedModel = (await discoverReconstructionModels({ signal: job.controller.signal }))[0];
+        setModel(selectedModel);
+      }
       const charts: string[] = [];
       for (let index = 0; index < eligible.length; index++) {
         setProgress(`Reconstructing diagram ${index + 1} of ${eligible.length}…`);
-        charts.push(await reconstructArtifact(eligible[index], apiKey, { signal: job.controller.signal, model: model.trim() }));
+        charts.push(await reconstructArtifact(eligible[index], apiKey, { signal: job.controller.signal, model: selectedModel, provider }));
       }
       if (job.controller.signal.aborted) return;
       if (contentRef.current !== snapshot) {
@@ -68,20 +76,28 @@ const DiagramReconstructionPanel: React.FC<Props> = ({ content, onReplace }) => 
 
   return <section aria-label="Diagram reconstruction" className="shrink-0 border-b border-docit-border bg-docit-surface p-3 text-xs text-docit-text print:hidden">
     {!!eligible.length && <>
-      <p className="mb-2">This copy lost its arrows. Reconstruct sends nearby text and labels to Gemini to infer connections; the result needs review.</p>
+      <p className="mb-2">This copy lost its arrows. Reconstruct sends nearby text and labels to {provider === 'gemini' ? 'Gemini' : 'the configured AI service'} to infer connections; the result needs review.</p>
+      <label className="block mb-2">Reconstruction provider
+        <select aria-label="Reconstruction provider" value={provider} onChange={event => setProvider(event.target.value as ReconstructionProvider)} disabled={!!progress}
+          className="ml-2 rounded border border-docit-border bg-docit-bg px-2 py-1">
+          <option value="openai">Configured AI service</option>
+          <option value="gemini">Gemini</option>
+        </select>
+      </label>
       <div className="flex flex-wrap gap-2 items-end">
-        <label className="flex-1 min-w-36">
+        {provider === 'gemini' ? <label className="flex-1 min-w-36">
           <span className="block mb-1">Gemini API key (this session only)</span>
           <input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} disabled={!!progress}
             autoComplete="off" spellCheck={false} className="w-full rounded border border-docit-border bg-docit-bg px-2 py-1.5" />
-        </label>
-        <button type="button" onClick={reconstruct} disabled={!!progress || !apiKey.trim()}
+        </label> : <p className="flex-1">Uses the service configured for this app. An available model is selected when you reconstruct.</p>}
+        <button type="button" onClick={reconstruct} disabled={!!progress || (provider === 'gemini' && !apiKey.trim())}
           className="rounded border border-docit-accent bg-docit-accent-subtle px-3 py-1.5 disabled:opacity-50">Reconstruct diagrams</button>
       </div>
       <details className="mt-2">
         <summary className="cursor-pointer">Model settings</summary>
-        <label className="mt-2 block">Gemini model
-          <input value={model} onChange={event => setModel(event.target.value)} disabled={!!progress} autoComplete="off" spellCheck={false}
+        <label className="mt-2 block">{provider === 'gemini' ? 'Gemini model' : 'AI model ID (optional)'}
+          <input value={provider === 'gemini' ? geminiModel : model} onChange={event => provider === 'gemini' ? setGeminiModel(event.target.value) : setModel(event.target.value)} disabled={!!progress} autoComplete="off" spellCheck={false}
+            placeholder={provider === 'openai' ? 'Automatic model discovery' : undefined}
             className="ml-2 rounded border border-docit-border bg-docit-bg px-2 py-1" />
         </label>
       </details>

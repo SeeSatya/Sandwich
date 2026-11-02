@@ -14,36 +14,95 @@ export const getChatGptDiagramPaste = (html: string, plainText = ''): string | n
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const assets: string[] = [];
   const assetLabels: string[] = [];
-  const candidates = Array.from(doc.querySelectorAll('[data-mermaid-source], pre, svg'));
-  candidates.forEach((element) => {
-    if (!doc.body.contains(element)) return;
+  const ownerSelector = '.mermaid, [id^="chatgpt-mermaid-"], [data-testid*="mermaid"], [data-mermaid-source]';
+  type Source = { element: Element; source: string; preserveContainer: boolean; duplicates: Source[] };
+  const declarations: Source[] = [];
+  const svgs: Element[] = [];
+  for (const element of Array.from(doc.querySelectorAll('[data-mermaid-source], pre, svg'))) {
+    if (element.localName === 'svg' && element.parentElement?.closest('svg')) continue;
+    if (element.localName !== 'svg' && element.closest('svg')) continue;
     let source = element.getAttribute('data-mermaid-source')?.trim();
-    if (element.tagName.toLowerCase() === 'pre') {
+    if (element.localName === 'pre') {
       const code = element.querySelector('code');
       if (code && /(?:language-|lang-)(?:mermaid|chatgpt-mermaid)\b/.test(code.className)) source = code.textContent?.trim();
     }
-    const isSvg = element.tagName.toLowerCase() === 'svg' && (
+    if (source) declarations.push({
+      element,
+      source,
+      // A data attribute can describe a whole card. Its visible prose and
+      // children are content, not a source panel to discard.
+      preserveContainer: !['pre', 'svg'].includes(element.localName) && element.hasAttribute('data-mermaid-source') &&
+        element.childNodes.length > 0 && element.textContent?.trim() !== source,
+      duplicates: [],
+    });
+    const isSvg = element.localName === 'svg' && (
       /^chatgpt-mermaid-|^mermaid-/.test(element.id) ||
       element.getAttribute('aria-roledescription') ||
       element.querySelector('.node, .edgePaths, .actor, .entityBox, .classGroup, .mindmap-node') ||
       element.closest('[id^="chatgpt-mermaid-"], .mermaid')
     );
-    if (!source && !isSvg) return;
+    if (isSvg) svgs.push(element);
+  }
+
+  // Metadata and a nested source panel can encode the same definition. Keep
+  // one declaration without comparing labels or guessing graph relationships.
+  const sources = declarations.filter((candidate) => {
+    const ancestor = declarations.find((other) => other !== candidate &&
+      other.element.hasAttribute('data-mermaid-source') && other.element.contains(candidate.element) && other.source === candidate.source);
+    if (!ancestor) return true;
+    ancestor.duplicates.push(candidate);
+    return false;
+  });
+  type Asset = { anchor: Element; source?: Source; svg?: Element };
+  const imports: Asset[] = [];
+  const pairedSources = new Set<Source>();
+  const pairedSvgs = new Set<Element>();
+  const before = (first: Element, second: Element) => first === second ||
+    !!(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const owners = Array.from(doc.querySelectorAll(ownerSelector)).reverse();
+  for (const owner of owners) {
+    const ownedSources = sources.filter((source) => owner.contains(source.element));
+    const ownedSvgs = svgs.filter((svg) => owner.contains(svg));
+    // A broad wrapper may contain several independent diagrams. Pair only
+    // a single source/rendering, leaving ambiguous assets intact.
+    if (ownedSources.length !== 1 || ownedSvgs.length !== 1) continue;
+    const source = ownedSources[0];
+    const svg = ownedSvgs[0];
+    if (pairedSources.has(source) || pairedSvgs.has(svg)) continue;
+    pairedSources.add(source);
+    pairedSvgs.add(svg);
+    const anchor = source.preserveContainer || before(svg, source.element) ? svg : source.element;
+    imports.push({ anchor, source, svg });
+  }
+  sources.filter((source) => !pairedSources.has(source)).forEach((source) => imports.push({ anchor: source.element, source }));
+  svgs.filter((svg) => !pairedSvgs.has(svg)).forEach((svg) => imports.push({ anchor: svg, svg }));
+  imports.sort((first, second) => first.anchor === second.anchor ? 0 : before(first.anchor, second.anchor) ? -1 : 1);
+
+  const discardSource = (source: Source) => {
+    if (source.preserveContainer) source.element.removeAttribute('data-mermaid-source');
+    else source.element.remove();
+    source.duplicates.forEach(discardSource);
+  };
+  imports.forEach(({ anchor, source, svg }) => {
+    if (!doc.body.contains(anchor)) return;
     let asset: string;
-    try { asset = source ? sourceFence(source) : `\`\`\`chatgpt-svg\n${encodeSvg(sanitizeDiagramSvg(element.outerHTML))}\n\`\`\``; }
+    try { asset = source ? sourceFence(source.source) : `\`\`\`chatgpt-svg\n${encodeSvg(sanitizeDiagramSvg(svg!.outerHTML))}\n\`\`\``; }
     catch { return; }
     assets.push(asset);
-    const labelClone = element.cloneNode(true) as Element;
-    labelClone.querySelectorAll('style, script, defs').forEach((node) => node.remove());
-    assetLabels.push(source ? '' : labelClone.textContent || '');
+    const labelClone = svg?.cloneNode(true) as Element | undefined;
+    labelClone?.querySelectorAll('style, script, defs').forEach((node) => node.remove());
+    assetLabels.push(labelClone?.textContent || '');
     const placeholder = doc.createElement('div');
     placeholder.setAttribute('data-diagram-placeholder', String(assets.length - 1));
     // Turndown discards blank elements before consulting custom rules.
     placeholder.textContent = 'Diagram';
-    const owner = source ? element.closest('.mermaid, [id^="chatgpt-mermaid-"], [data-testid*="mermaid"]') : null;
-    // A source panel and rendered SVG can be siblings in one diagram card.
-    // Replace the card once, preferring source without importing its SVG twice.
-    (owner && owner.querySelectorAll('svg').length === 1 ? owner : element).replaceWith(placeholder);
+    if (source?.preserveContainer && anchor === source.element) {
+      source.element.removeAttribute('data-mermaid-source');
+      source.element.prepend(placeholder);
+    } else anchor.replaceWith(placeholder);
+    if (source && source.element !== anchor) discardSource(source);
+    else source?.duplicates.forEach(discardSource);
+    if (svg && svg !== anchor) svg.remove();
   });
   if (!assets.length) return null;
 
