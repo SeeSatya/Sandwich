@@ -32,6 +32,8 @@
     const inspect = text => ({
       bytes: new TextEncoder().encode(text).byteLength,
       mermaidFences: (text.match(/(?:`{3,}|~{3,})(?:mermaid|chatgpt-mermaid)\b/gi) || []).length,
+      encodedSvgFences: (text.match(/(?:`{3,}|~{3,})chatgpt-svg\b/gi) || []).length,
+      captureMarker: /^<!-- markmind-diagram-capture:v1 diagrams=[1-9]\d* -->\r?\n/.test(text),
       svgOpeningTags: (text.match(/<svg\b/gi) || []).length,
       svgClosingTags: (text.match(/<\/svg\s*>/gi) || []).length,
       svgPathTags: (text.match(/<path\b/gi) || []).length,

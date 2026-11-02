@@ -2,6 +2,7 @@ import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
 import { replaceChatGptArtifacts } from './artifacts';
 import { encodeSvg, sanitizeDiagramSvg } from './svg';
+import { getCapturedClipboardMarkdown } from './capturedClipboard';
 
 const sourceFence = (source: string): string => {
   const fence = '`'.repeat(Math.max(3, ...Array.from(source.matchAll(/`+/g), (match) => match[0].length + 1)));
@@ -10,6 +11,8 @@ const sourceFence = (source: string): string => {
 
 /** Keep the entire copied document and every diagram in its original position. */
 export const getChatGptDiagramPaste = (html: string, plainText = ''): string | null => {
+  const captured = getCapturedClipboardMarkdown(plainText);
+  if (captured !== null) return captured;
   if (!html || typeof DOMParser === 'undefined') return null;
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const assets: string[] = [];

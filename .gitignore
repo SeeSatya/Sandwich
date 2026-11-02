@@ -39,3 +39,7 @@ dist-ssr
 # Browser test artifacts
 /test-results/
 /playwright-report/
+
+# Generated self-contained copy helper (rebuilt before dev/build/preview)
+/public/diagram-copy-helper.user.js
+/public/diagram-copy-helper.bookmarklet.txt

@@ -5,9 +5,10 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
+    "dev": "npm run build:copy-helper && vite",
+    "build": "npm run build:copy-helper && vite build",
+    "preview": "npm run build:copy-helper && vite preview",
+    "build:copy-helper": "node scripts/build-diagram-copy-helper.mjs",
     "test": "playwright test",
     "typecheck": "tsc --noEmit"
   },
@@ -35,6 +36,7 @@
     "@types/node": "^22.14.0",
     "@types/turndown": "^5.0.6",
     "@vitejs/plugin-react": "^5.0.0",
+    "esbuild": "0.25.12",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

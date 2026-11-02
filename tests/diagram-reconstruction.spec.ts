@@ -22,7 +22,7 @@ test('actual pasted CSS copies offer explicit recovery without automatic request
   await page.route(api, async route => { calls++; await route.abort(); });
   for (const fixture of copiedDiagrams) {
     await page.locator('textarea').fill(fixture.markdown);
-    await expect(panel(page)).toContainText('This copy lost its arrows');
+    await expect(panel(page).getByRole('link', { name: 'Set up diagram copying' })).toHaveAttribute('href', '/diagram-copy-helper.html');
     await expect(panel(page).getByRole('button', { name: 'Reconstruct diagrams', exact: true })).toBeEnabled();
     await expect(page.locator('#markdown-source')).toContainText('Diagram data missing');
   }

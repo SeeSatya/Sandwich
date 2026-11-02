@@ -176,7 +176,7 @@ export const replaceChatGptArtifacts = (
   for (const artifact of artifacts) {
     const block = replacement?.(artifact.labels, artifact.index, artifact) ?? [
         '> **Diagram data missing from this copy.**',
-        '> Use Reconstruct diagrams above the editor to infer missing flowchart connections, or paste Mermaid source / rich SVG to preserve the original graph.',
+        '> Enable the [ChatGPT copy helper](/diagram-copy-helper.html) and copy the response again, or paste Mermaid source / SVG to keep the original diagram.',
         artifact.labels ? `> Available diagram text: ${artifact.labels.replace(/[\r\n]+/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 · $2').replace(/[<>]/g, '')}` : '',
       ].filter(Boolean).join('\n');
     transformed += text.slice(cursor, artifact.start) + block.split('\n').map((line) => artifact.indent + line).join('\n');

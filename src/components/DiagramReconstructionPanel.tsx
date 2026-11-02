@@ -75,8 +75,13 @@ const DiagramReconstructionPanel: React.FC<Props> = ({ content, onReplace }) => 
   if (!artifacts.length && !undo && !progress && !message && !error && !apiKey) return null;
 
   return <section aria-label="Diagram reconstruction" className="shrink-0 border-b border-docit-border bg-docit-surface p-3 text-xs text-docit-text print:hidden">
+    {!!artifacts.length && <div className="mb-3">
+      <p className="mb-2">To keep the original arrows and layout, enable diagram copying in ChatGPT and copy this response again.</p>
+      <a href="/diagram-copy-helper.html" target="_blank" rel="noopener noreferrer"
+        className="inline-block rounded border border-docit-accent bg-docit-accent-subtle px-3 py-1.5">Set up diagram copying</a>
+    </div>}
     {!!eligible.length && <>
-      <p className="mb-2">This copy lost its arrows. Reconstruct sends nearby text and labels to {provider === 'gemini' ? 'Gemini' : 'the configured AI service'} to infer connections; the result needs review.</p>
+      <p className="mb-2">Optional AI reconstruction sends nearby text and labels to {provider === 'gemini' ? 'Gemini' : 'the configured AI service'} to infer missing connections; the result needs review.</p>
       <label className="block mb-2">Reconstruction provider
         <select aria-label="Reconstruction provider" value={provider} onChange={event => setProvider(event.target.value as ReconstructionProvider)} disabled={!!progress}
           className="ml-2 rounded border border-docit-border bg-docit-bg px-2 py-1">

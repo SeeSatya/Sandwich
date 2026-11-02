@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keep original ChatGPT diagrams</title>
+<style>
+  body { max-width: 780px; margin: 48px auto; padding: 0 24px; font: 16px/1.6 system-ui, sans-serif; color: #172033; background: #f8fafc; }
+  section { padding: 22px; margin: 24px 0; border: 1px solid #cbd5e1; border-radius: 12px; background: white; }
+  h2 { margin-top: 0; }
+  a { color: #1d4ed8; }
+  .button { display: inline-block; padding: 10px 16px; border: 0; border-radius: 8px; background: #1d4ed8; color: white; font: inherit; text-decoration: none; }
+  #bookmark[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+</style>
+<h1>Keep original ChatGPT diagrams</h1>
+<p>Enable the copy helper in ChatGPT, then use its usual Copy response button. Your Markdown keeps each diagram’s original arrows and layout.</p>
+<p>The helper runs locally in your browser and preserves the live SVG. It requires no API key and sends no response text to a service.</p>
+<section>
+  <h2>Enable in a ChatGPT tab</h2>
+  <ol>
+    <li>Drag the button below to your browser’s bookmarks bar.</li>
+    <li>Open the original response in ChatGPT and click that bookmark.</li>
+    <li>Wait for the diagram to finish rendering, use Copy response, then paste into the editor.</li>
+  </ol>
+  <a id="bookmark" class="button" draggable="true" aria-disabled="true">Keep ChatGPT diagrams</a>
+  <p id="status" role="status">Preparing the bookmark…</p>
+  <p>Enable it again after reloading the ChatGPT page. If your browser blocks the bookmark, use the persistent helper below.</p>
+</section>
+<section>
+  <h2>Enable automatically</h2>
+  <p>If you use a userscript manager, install the persistent helper. It activates when a ChatGPT page opens, so you can keep using Copy response across reloads.</p>
+  <a class="button" href="/diagram-copy-helper.user.js">Install persistent helper</a>
+</section>
+<p>The helper checks that each copied diagram matches its live SVG. If a diagram is unavailable or does not match, it keeps the original copy and reports that it could not preserve the diagrams.</p>
+<p><a href="/">Return to the editor</a> · <a href="/diagram-copy-check.html">Check clipboard formats</a></p>
+<script>
+  const bookmark = document.getElementById('bookmark');
+  const status = document.getElementById('status');
+  bookmark.addEventListener('click', event => {
+    event.preventDefault();
+    status.textContent = 'Drag this button to your bookmarks bar, then use the bookmark in your ChatGPT tab.';
+  });
+  fetch('/diagram-copy-helper.bookmarklet.txt').then(response => {
+    if (!response.ok) throw new Error();
+    return response.text();
+  }).then(source => {
+    const value = source.trim();
+    if (!value.startsWith('javascript:')) throw new Error();
+    bookmark.href = value;
+    bookmark.removeAttribute('aria-disabled');
+    status.textContent = 'Ready to drag to your bookmarks bar.';
+  }).catch(() => {
+    status.textContent = 'The helper download is unavailable. Try again after the app finishes deploying.';
+  });
+</script>
+</html>

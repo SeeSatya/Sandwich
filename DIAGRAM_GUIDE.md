@@ -12,7 +12,21 @@ A downloaded or plain-text Markdown copy sometimes contains only `#chatgpt-merma
 
 ChatGPT's rendered diagrams use SVG elements for node geometry and arrow paths, with a stylesheet for their appearance. The provided CSS contains generic node/edge styling and a diagram-wide ID; it contains no per-node coordinates, edge endpoints, or Mermaid arrow commands. A complete SVG can be rendered faithfully without converting it back into Mermaid.
 
-The native Copy response button's rich clipboard payload still needs to be inspected. Open `/diagram-copy-check.html` in this application, copy the original response in ChatGPT, and paste into the checker. Its report lists clipboard formats, sizes, and SVG/source markers; it stays local until copied. SVG counts can include icons, so positive markers require inspecting the original payload before claiming that complete geometry is available. The report guides that investigation; absent SVG/source markers can identify copies that already lost diagram data.
+The user inspected the native Copy response clipboard on November 2, 2026. Both `text/plain` (12,087 bytes) and `text/html` (13,417 bytes) contained ChatGPT Mermaid CSS artifacts, with zero SVG opening/closing/path/viewBox markers, Mermaid fences, escaped SVG markup, SVG data URIs, or recognized source attributes. The report is recorded in [tests/fixtures/native-copy-format-report.json](tests/fixtures/native-copy-format-report.json). It establishes the absence of these supported diagram representations after copying and browser processing; it does not identify which internal conversion removed them.
+
+Open `/diagram-copy-check.html` to inspect clipboard formats locally. Its report lists sizes and diagram markers without response text, and stays local until copied. SVG counts can include icons, so positive markers require further inspection. Copies made with the capture helper contain encoded SVG fences and a versioned capture marker in plain Markdown; original rich HTML is retained separately.
+
+### Preserve diagrams with the native Copy response button
+
+Open `/diagram-copy-helper.html` in the application. Drag **Keep ChatGPT diagrams** to your bookmarks bar, open the original ChatGPT response, activate that bookmark, then use Copy response and paste into the editor. The bookmark lasts for the current page; activate it again after a reload. A persistent userscript is also available for userscript managers and activates at document start on the ChatGPT domains. Some browsers or site policies may block bookmarklets, and code that cached clipboard methods before activation can bypass a late-installed helper; persistent installation reduces that late-installation risk.
+
+The helper intercepts `navigator.clipboard.writeText` and `write` locally. It uses each copied CSS root ID to match one live SVG, snapshots its geometry and styles before asynchronous clipboard data resolves, and replaces the damaged Markdown region with a UTF-8 encoded `chatgpt-svg` block. It preserves surrounding Markdown, branches, feedback loops, and diagram-specific geometry directly from SVG. No graph relationships or diagram examples are encoded in the helper, and no model or network request is made.
+
+The original `text/html` and other clipboard MIME payloads remain unchanged. Repaired plain Markdown carries a first-line capture marker; the app prefers that version only when its complete sanitized SVG fences account for the declared diagrams and no damaged artifacts remain. The marker is a routing hint, not a trust boundary or a sanitization bypass. Saved Markdown remains portable within the shared SVG import pipeline.
+
+Every diagram must match a unique live SVG with the copied labels and valid geometry. A missing, ambiguous, stale, or invalid match keeps the complete original copy and reports the failure. Native clipboard permission errors are preserved, with no second write attempt. The live response must still be available to capture; already-flattened files need to be copied again from their original response. Legacy `execCommand('copy')` is outside the verified API interception path.
+
+Browser tests use controlled clipboard calls and rendered SVGs to verify this mechanism. A native ChatGPT copy made with the helper still needs to be checked on the user's actual page before claiming live-site acceptance.
 
 When both source and rendered SVG are present in one unambiguous diagram card, source is preferred regardless of their order. Explanatory prose stays in place, and broad wrappers containing independent diagrams retain all their assets.
 
@@ -28,7 +42,7 @@ Reconstruction produces editable fenced Mermaid and marks each result **AI recon
 
 All eligible diagrams are reconstructed together. Cancellation, a failed request, or an edit during reconstruction preserves the original document. **Undo reconstruction** restores the original copy while the generated document is unedited. Non-flowchart CSS-only copies still need Mermaid source or SVG; the model recovery path does not claim to reconstruct sequence, class, or chart geometry from styling alone.
 
-For the original connections and positions, copy the rendered response with rich HTML containing its SVG, ask for fenced Mermaid source, or use a diagram image. A screenshot alone is not an editable diagram definition. Source and SVG rendering do not require a Gemini key.
+For the original connections and positions, enable the capture helper and recopy the live response, supply rich HTML containing the SVG, or ask for fenced Mermaid source. Source and SVG rendering require no API key. A screenshot alone is not an editable diagram definition.
 
 ## Mermaid source
 

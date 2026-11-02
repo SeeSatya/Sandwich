@@ -1,0 +1,27 @@
+{
+  "clipboardTypes": ["text/plain", "text/html"],
+  "plainText": {
+    "bytes": 12087,
+    "mermaidFences": 0,
+    "svgOpeningTags": 0,
+    "svgClosingTags": 0,
+    "svgPathTags": 0,
+    "svgViewBoxes": 0,
+    "escapedSvgMarkup": false,
+    "svgDataUris": false,
+    "mermaidSourceAttributes": false,
+    "chatgptCssArtifacts": true
+  },
+  "richHtml": {
+    "bytes": 13417,
+    "mermaidFences": 0,
+    "svgOpeningTags": 0,
+    "svgClosingTags": 0,
+    "svgPathTags": 0,
+    "svgViewBoxes": 0,
+    "escapedSvgMarkup": false,
+    "svgDataUris": false,
+    "mermaidSourceAttributes": false,
+    "chatgptCssArtifacts": true
+  }
+}
