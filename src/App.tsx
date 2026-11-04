@@ -4,6 +4,7 @@ import { exportDocx } from './docxExport';
 import MarkdownPreview from './components/MarkdownPreview';
 import { AppTheme, DEFAULT_THEME, THEME_PRESETS } from './types';
 import { getChatGptDiagramPaste } from './diagrams/chatgptClipboard';
+import { waitForDiagramLayout } from './diagrams/readiness';
 import {
   DocumentTextIcon,
   DocumentArrowDownIcon,
@@ -232,13 +233,19 @@ function App() {
     }
   }, [customColor]);
 
-  const handlePrint = () => {
-    window.print();
+  const handlePrint = async () => {
+    try {
+      await waitForDiagramLayout();
+      window.print();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Unable to prepare the document for printing.');
+    }
   };
 
   const handleExportDoc = async () => {
     setDocxProgress({ pct: 0, label: 'Starting…' });
     try {
+      await waitForDiagramLayout();
       await exportDocx(theme, (pct, label) => setDocxProgress({ pct, label }));
       setTimeout(() => setDocxProgress(null), 800);
     } catch (e) {
@@ -594,7 +601,7 @@ function App() {
                   value={markdown}
                   onChange={(e) => setMarkdown(e.target.value)}
                   onPaste={(event) => {
-                    const diagram = getChatGptDiagramPaste(event.clipboardData.getData('text/html'), theme.isDark);
+                    const diagram = getChatGptDiagramPaste(event.clipboardData.getData('text/html'), theme.isDark, event.clipboardData.getData('text/plain'));
                     if (!diagram) return;
 
                     event.preventDefault();

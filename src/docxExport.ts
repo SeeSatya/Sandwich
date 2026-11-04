@@ -82,7 +82,7 @@ function flattenLabels(svg: SVGSVGElement): SVGSVGElement {
   const origFOs = svg.querySelectorAll('foreignObject');
   const cloneFOs = clone.querySelectorAll('foreignObject');
   cloneFOs.forEach((fo, i) => {
-    const orig = origFOs[i] as HTMLElement | undefined;
+    const orig = origFOs[i];
     const labelEl = orig?.querySelector('div,span,p') as HTMLElement | null;
     const lines = Array.from(fo.querySelectorAll('span,div,p'))
       .map(n => (n.textContent || '').trim())
@@ -90,6 +90,31 @@ function flattenLabels(svg: SVGSVGElement): SVGSVGElement {
     const text = (lines.length ? Array.from(new Set(lines)).pop()! : (fo.textContent || '')).trim();
     if (!text) { fo.remove(); return; }
     const cs = labelEl ? getComputedStyle(labelEl) : null;
+    // Keep the browser's actual wrapped lines when replacing foreignObject
+    // with portable SVG text. A single line overflows narrow Mermaid nodes.
+    const renderedLines: string[] = [];
+    if (orig) {
+      const walker = document.createTreeWalker(orig, NodeFilter.SHOW_TEXT);
+      const range = document.createRange();
+      let lineTop: number | undefined;
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        const value = node.textContent || '';
+        for (let offset = 0; offset < value.length; offset++) {
+          range.setStart(node, offset);
+          range.setEnd(node, offset + 1);
+          const rect = range.getBoundingClientRect();
+          if (rect.height === 0) continue;
+          if (lineTop === undefined || Math.abs(rect.top - lineTop) > 1) {
+            renderedLines.push('');
+            lineTop = rect.top;
+          }
+          renderedLines[renderedLines.length - 1] += value[offset];
+        }
+      }
+    }
+    const labelLines = renderedLines.map(line => line.trim()).filter(Boolean);
+    if (!labelLines.length) labelLines.push(text);
     // Local box coords; the <text> is inserted in the FO's own parent so it
     // inherits that group's transform — correct for flowchart/state/mindmap/etc.
     const x = parseFloat(fo.getAttribute('x') || '0');
@@ -98,7 +123,9 @@ function flattenLabels(svg: SVGSVGElement): SVGSVGElement {
     const h = parseFloat(fo.getAttribute('height') || '0');
     const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     t.setAttribute('x', String(x + w / 2));
-    t.setAttribute('y', String(y + h / 2));
+    const fontSize = parseFloat(cs?.fontSize || '14');
+    const lineHeight = parseFloat(cs?.lineHeight || '') || fontSize * 1.4;
+    t.setAttribute('y', String(y + h / 2 - (labelLines.length - 1) * lineHeight / 2));
     t.setAttribute('text-anchor', 'middle');
     t.setAttribute('dominant-baseline', 'central');
     // Contrast against the node's own fill; fall back to the live computed color.
@@ -106,7 +133,13 @@ function flattenLabels(svg: SVGSVGElement): SVGSVGElement {
     t.setAttribute('fill', fill ? contrastText(fill, cs?.color || '#1f2937') : (cs?.color || '#1f2937'));
     t.setAttribute('font-size', cs?.fontSize || '14px');
     t.setAttribute('font-family', 'sans-serif');
-    t.textContent = text;
+    labelLines.forEach((line, index) => {
+      const span = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+      span.setAttribute('x', String(x + w / 2));
+      if (index > 0) span.setAttribute('dy', String(lineHeight));
+      span.textContent = line;
+      t.appendChild(span);
+    });
     fo.parentNode?.replaceChild(t, fo);
   });
   return clone;
