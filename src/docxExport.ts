@@ -4,6 +4,7 @@ import {
   Footer, PageNumber,
 } from 'docx';
 import { AppTheme } from './types';
+import { diagramViewBoxSize, fitDiagramSize } from './diagrams/sizing';
 
 // Academic Report preset enforces strict formatting rules (Times New Roman,
 // 12pt justified body, 1.5 spacing, set heading sizes, specific margins, page numbers).
@@ -288,10 +289,12 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W): Prom
     : el.querySelector('.mermaid-container svg');
   if (svg) {
     const rect = svg.getBoundingClientRect();
-    const vb = svg.getAttribute('viewBox')?.split(/\s+/).map(Number);
-    let w = rect.width || (vb ? vb[2] : 0) || 600;
-    let h = rect.height || (vb ? vb[3] : 0) || 400;
-    if (w > maxW) { h = h * (maxW / w); w = maxW; }
+    const naturalSize = diagramViewBoxSize(svg.getAttribute('viewBox'));
+    const { width: w, height: h } = fitDiagramSize(
+      naturalSize?.width || rect.width || 600,
+      naturalSize?.height || rect.height || 400,
+      Math.min(maxW, rect.width || Infinity),
+    );
     const flat = flattenLabels(svg as SVGSVGElement);
     const svgStr = new XMLSerializer().serializeToString(flat);
     const png = await svgToPng(flat, w, h);

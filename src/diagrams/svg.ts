@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify';
+import { diagramViewBoxSize, fitDiagramSize } from './sizing';
 
 export const encodeSvg = (value: string): string => {
   const bytes = new TextEncoder().encode(value);
@@ -114,10 +115,10 @@ export const sanitizeDiagramSvg = (markup: string): string => {
   svg.removeAttribute('height');
   const rootStyle = (svg as SVGSVGElement).style;
   ['width', 'height', 'max-width', 'max-height', 'min-width', 'min-height'].forEach((property) => rootStyle.removeProperty(property));
-  // Keep narrow charts at their measured size; enlarging them to page width
-  // creates unnecessarily tall drawings and forces pagination to shrink them.
-  const naturalWidth = Number(svg.getAttribute('viewBox')?.split(/[\s,]+/)[2]);
-  if (naturalWidth > 0) rootStyle.maxWidth = `${naturalWidth}px`;
+  // Limit width proportionally to height so the complete drawing stays compact
+  // without clipping, distortion, or an empty fixed-height SVG viewport.
+  const naturalSize = diagramViewBoxSize(svg.getAttribute('viewBox'));
+  if (naturalSize) rootStyle.maxWidth = `${fitDiagramSize(naturalSize.width, naturalSize.height).width}px`;
   if (!rootStyle.cssText) svg.removeAttribute('style');
   return new XMLSerializer().serializeToString(svg);
 };

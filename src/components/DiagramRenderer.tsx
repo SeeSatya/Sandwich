@@ -10,6 +10,7 @@ import {
 } from '../diagrams';
 import { AppTheme } from '../types';
 import { getDiagramEdgeColor } from '../diagrams/colors';
+import { fitDiagramSize } from '../diagrams/sizing';
 
 interface DiagramRendererProps {
   data: DiagramDefinition;
@@ -299,7 +300,7 @@ const DiagramRenderer: React.FC<DiagramRendererProps> = ({ data, theme }) => {
         width="100%"
         height="auto"
         xmlns="http://www.w3.org/2000/svg"
-        style={{ display: 'block' }}
+        style={{ display: 'block', height: 'auto', maxWidth: fitDiagramSize(layout.width, layout.height).width, margin: '0 auto' }}
       >
         <defs>
           <marker

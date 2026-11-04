@@ -23,6 +23,7 @@ import RadModelDiagram from './RadModelDiagram';
 import DiagramBlock from './DiagramBlock';
 import { getDiagramEdgeColor } from '../diagrams/colors';
 import { preprocessMarkdown } from '../diagrams/preprocessMarkdown';
+import { diagramViewBoxSize, fitDiagramSize } from '../diagrams/sizing';
 export { preprocessMarkdown } from '../diagrams/preprocessMarkdown';
 
 interface MarkdownPreviewProps {
@@ -1553,7 +1554,11 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
               // an atomic pagination/export block and let its embedded CSS work.
               svg: ({ children, ...props }: any) => {
                 const isChatGptMermaid = String(props.id || '').startsWith('chatgpt-mermaid-');
-                const svgElement = <svg {...props}>{children}</svg>;
+                const naturalSize = isChatGptMermaid ? diagramViewBoxSize(props.viewBox ?? null) : null;
+                const svgElement = <svg {...props} {...(naturalSize ? {
+                  width: '100%', height: 'auto', preserveAspectRatio: 'xMidYMid meet',
+                  style: { ...props.style, width: '100%', height: 'auto', maxWidth: fitDiagramSize(naturalSize.width, naturalSize.height).width },
+                } : {})}>{children}</svg>;
                 return isChatGptMermaid ? (
                   <div className="mermaid-container chatgpt-mermaid-container">
                     {svgElement}
