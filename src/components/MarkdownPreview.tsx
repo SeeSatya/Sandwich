@@ -3,6 +3,7 @@ import React, { useLayoutEffect, useRef, useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
+import remarkBreaks from 'remark-breaks';
 import rehypeRaw from 'rehype-raw';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
@@ -250,7 +251,18 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       const range = document.createRange();
       range.setStart(startPoint.node, startPoint.offset);
       range.setEnd(endPoint.node, endPoint.offset);
-      clone.appendChild(range.cloneContents());
+      // cloneContents omits its common ancestor. A paragraph containing only
+      // bold/code/math would otherwise lose that wrapper during pagination.
+      let contents: Node = range.cloneContents();
+      let ancestor = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+        ? range.commonAncestorContainer as Element : range.commonAncestorContainer.parentElement;
+      while (ancestor && ancestor !== element) {
+        const wrapper = ancestor.cloneNode(false);
+        wrapper.appendChild(contents);
+        contents = wrapper;
+        ancestor = ancestor.parentElement;
+      }
+      clone.appendChild(contents);
       stripIds(clone);
       return clone;
     };
@@ -1423,7 +1435,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         <div className={`page markdown-source-page ${paginationThemeClass}`.trim()} aria-hidden="true">
           <div ref={sourceRef} id="markdown-source" className="page-content markdown-source">
             <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkMath]}
+            remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
             rehypePlugins={[rehypeRaw, rehypeKatex]}
             components={{
               pre: ({ children }) => <div>{React.Children.map(children, child =>

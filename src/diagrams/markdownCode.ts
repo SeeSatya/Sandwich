@@ -47,7 +47,9 @@ export const protectMarkdownCode = (text: string) => {
     }
     node.children?.forEach(visit);
   };
-  visit(fromMarkdown(text));
+  // Plain prose has no inline/indented code to discover. Avoid a second
+  // complete CommonMark parse before react-markdown parses that document.
+  if (/`| {4}|\t/.test(text)) visit(fromMarkdown(text));
   ranges.sort((first, second) => first.start - second.start);
   let prefix = '\uE000MARKDOWN_CODE_';
   while (text.includes(prefix)) prefix += '_';

@@ -1,6 +1,7 @@
 import { AppTheme } from '../types';
 import { getDiagramEdgeColor } from './colors';
 import { protectMarkdownCode } from './markdownCode';
+import { preprocessLatex } from './latex';
 
 const escapeCurrency = (text: string): string => {
   // Keep complete inline/display formulas intact, while treating unmatched
@@ -33,21 +34,10 @@ export const preprocessMarkdown = (text: string, theme?: AppTheme): string => {
   if (!text) return '';
   const diagramEdgeColor = getDiagramEdgeColor(theme?.isDark ?? true);
 
-  // remark-math uses `$` / `$$` delimiters. Accept the common LaTeX
-  // `\(...\)` and `\[...\]` forms too. Use inline delimiters for `\[...\]`
-  // because equations often appear inside list paragraphs; `$$` is a block
-  // delimiter and would otherwise be treated as literal text there.
+  // Accept common LaTeX delimiters and complete copied expressions while
+  // preserving native math escapes and literal Markdown code.
   const code = protectMarkdownCode(text);
-  text = code.text
-      // Some pasted/generated Markdown contains JSON-style escaped slashes
-      // (for example `\\[ ... \\]` and `\\frac`). Restore TeX commands first.
-      .replace(/\\\\/g, '\\')
-      // A standalone `\[...\]` is a display equation. Convert it to a real
-      // block so pagination treats the complete equation as one unit.
-      .replace(/^([ \t]*)\\\[([^\r\n]*?)\\\][ \t]*$/gm, (_match, indent: string, formula: string) =>
-        `${indent}$$\n${indent}${formula.trim()}\n${indent}$$`)
-      .replace(/\\\[([\s\S]*?)\\\]/g, (_match, formula: string) => `$${formula}$`)
-      .replace(/\\\(([\s\S]*?)\\\)/g, (_match, formula: string) => `$${formula}$`);
+  text = preprocessLatex(code.text);
 
   text = escapeCurrency(text);
 

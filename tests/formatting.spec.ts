@@ -18,7 +18,7 @@ const zipEntry = (zip: Buffer, name: string): string => {
   throw new Error(`ZIP entry missing: ${name}`);
 };
 
-const document = `# Formatting report
+const formattingDocument = `# Formatting report
 
 Plain text with **BOLD**, __also bold__, *italic*, _also italic_, ***both***, ~~deleted~~, [a link](https://example.com), and \`inline **literal**\`.
 
@@ -67,7 +67,7 @@ const paste = async (page: Page, html: string, plain: string) => {
 };
 
 test('common Markdown stays visibly formatted in paginated preview and print', async ({ page }) => {
-  await page.locator('textarea').fill(document);
+  await page.locator('textarea').fill(formattingDocument);
   await expect(page.locator('.markdown-pages [data-diagram-state="ready"] svg')).toHaveCount(1);
   for (const theme of ['Modern Light', 'Midnight']) {
     await page.locator('[title="Document theme"] select').selectOption({ label: theme });
@@ -91,6 +91,20 @@ test('common Markdown stays visibly formatted in paginated preview and print', a
   await expect(page.locator('.markdown-pages .code-block-wrapper')).toHaveCount(1);
   await expect(page.locator('.markdown-pages .code-block-wrapper')).toContainText('single line **literal**');
   await expect(page.locator('.markdown-pages p code')).toHaveText(['inline **literal**', 'first second']);
+});
+
+test('standalone formatting wrappers survive pagination and splitting', async ({ page }) => {
+  const longBold = 'Standalone bold text remains bold across page breaks. '.repeat(350).trim();
+  await page.locator('textarea').fill(`**BOLD ONLY**\n\n*ITALIC ONLY*\n\n~~STRIKE ONLY~~\n\n\`CODE ONLY\`\n\n**${longBold}**`);
+  await expect(page.locator('.markdown-pages')).toHaveAttribute('data-pagination-state', 'ready');
+  const preview = page.locator('.markdown-pages');
+  await expect(preview.locator('strong').filter({ hasText: /^BOLD ONLY$/ })).toHaveCSS('font-weight', '700');
+  await expect(preview.locator('em')).toHaveText('ITALIC ONLY');
+  await expect(preview.locator('del')).toHaveText('STRIKE ONLY');
+  await expect(preview.locator('p code')).toHaveText('CODE ONLY');
+  const fragments = preview.locator('.pagination-text-fragment').filter({ hasText: 'Standalone bold text' });
+  expect(await fragments.count()).toBeGreaterThan(1);
+  expect(await fragments.evaluateAll(nodes => nodes.every(node => node.querySelector('strong')?.textContent === node.textContent))).toBe(true);
 });
 
 test('rich diagram paste preserves emphasis and common formats throughout the document', async ({ page }) => {
@@ -136,7 +150,7 @@ test('indented code and escaped delimiters survive Markdown extensions unchanged
 });
 
 test('Word download preserves bold, italic, strike, formatted links, code, and diagrams', async ({ page }) => {
-  await page.locator('textarea').fill(document + '\n[**linked bold** and *linked italic* and ~~linked strike~~](https://example.com/formatted)\n');
+  await page.locator('textarea').fill(formattingDocument + '\n[**linked bold** and *linked italic* and ~~linked strike~~](https://example.com/formatted)\n');
   await expect(page.locator('.markdown-pages [data-diagram-state="ready"] svg')).toHaveCount(1);
   await expect(page.locator('.markdown-pages')).toHaveAttribute('data-pagination-state', 'ready');
   const downloaded = page.waitForEvent('download');
@@ -156,4 +170,77 @@ test('Word download preserves bold, italic, strike, formatted links, code, and d
   expect(xml).toContain('<w:br/>');
   expect(xml).toContain('<w:hyperlink');
   expect(xml).toContain('<asvg:svgBlip');
+});
+
+test('typing batches preview work while keeping the editor responsive', async ({ page }) => {
+  const paragraph = 'A readable paragraph with **bold**, *italic*, and several words for a longer document. '.repeat(8);
+  await page.locator('textarea').fill(Array.from({ length: 80 }, (_, index) => `Paragraph ${index + 1}. ${paragraph}`).join('\n\n'));
+  await expect(page.locator('.markdown-pages')).toContainText('Paragraph 80.');
+  await expect(page.locator('.markdown-pages')).toHaveAttribute('data-pagination-state', 'ready');
+  await page.locator('textarea').focus();
+  await page.locator('textarea').press('Control+End');
+  await page.evaluate(() => {
+    const metrics = { batches: 0, processing: [] as number[], durations: [] as number[] };
+    (window as any).editorMetrics = metrics;
+    new MutationObserver(() => metrics.batches++).observe(document.getElementById('markdown-source')!, { childList: true, subtree: true, characterData: true });
+    new PerformanceObserver(list => {
+      for (const entry of list.getEntries() as PerformanceEventTiming[]) {
+        if (['keydown', 'keypress', 'beforeinput', 'input', 'keyup'].includes(entry.name)) {
+          metrics.processing.push(entry.processingEnd - entry.processingStart);
+          metrics.durations.push(entry.duration);
+        }
+      }
+    }).observe({ type: 'event', durationThreshold: 16 } as PerformanceObserverInit);
+  });
+  await page.keyboard.type('abcdefghijkl', { delay: 5 });
+  await expect(page.locator('textarea')).toHaveValue(/abcdefghijkl$/);
+  await expect(page.locator('.markdown-pages')).toContainText('abcdefghijkl');
+  const metrics = await page.evaluate(() => (window as any).editorMetrics);
+  console.log('Editor typing metrics:', JSON.stringify({
+    previewBatches: metrics.batches,
+    maxEventProcessingMs: Math.max(0, ...metrics.processing),
+    maxEventDurationMs: Math.max(0, ...metrics.durations),
+  }));
+  expect(metrics.batches).toBeLessThanOrEqual(2);
+});
+
+test('single source newlines retain the Java example and block/code/math structure', async ({ page }) => {
+  const java = '**1. Simple:**\nJava is considered simple because its syntax is easy to understand and similar to C and C++. It removes complicated features such as explicit pointer manipulation and supports automatic memory management.';
+  const source = `${java}\n\n- **Feature**\n  Second feature line.\n\n\`\`\`text\nfirst code line\nsecond code line\n\`\`\`\n\nMath $5 + 10\n= 15$.\n\n$$\n5 + 10 = 15\n$$`;
+  await page.locator('textarea').fill(source);
+  const paragraph = page.locator('.markdown-pages p').filter({ hasText: /^1\. Simple:\s*Java is considered/ });
+  await expect(paragraph.locator('strong')).toHaveText('1. Simple:');
+  await expect(paragraph.locator('strong')).toHaveCSS('font-weight', '700');
+  await expect(paragraph.locator('br')).toHaveCount(1);
+  await expect(page.locator('.markdown-pages li br')).toHaveCount(1);
+  await expect(page.locator('.markdown-pages .code-block-wrapper')).toContainText('first code line');
+  await expect(page.locator('.markdown-pages .code-block-wrapper')).toContainText('second code line');
+  await expect(page.locator('.markdown-pages .katex')).toHaveCount(2);
+  await expect(page.locator('.markdown-pages .katex br')).toHaveCount(0);
+  await page.emulateMedia({ media: 'print' });
+  await expect(paragraph.locator('br')).toHaveCount(1);
+  await page.emulateMedia({ media: 'screen' });
+  const downloaded = page.waitForEvent('download');
+  await page.locator('button[title="Export as Word (.docx)"]').click();
+  const xml = zipEntry(readFileSync((await (await downloaded).path())!), 'word/document.xml');
+  expect(xml).toMatch(/1\. Simple:<\/w:t>[\s\S]*?<w:br\/>[\s\S]*?Java is considered simple/);
+});
+
+test('exporting immediately after an edit flushes the latest text for Word and print', async ({ page }) => {
+  await page.locator('textarea').fill('Previous document.');
+  await expect(page.locator('.markdown-pages')).toContainText('Previous document.');
+  const downloaded = page.waitForEvent('download');
+  await page.locator('textarea').fill('**Latest Word draft**\nNew line saved immediately.');
+  await page.locator('button[title="Export as Word (.docx)"]').click();
+  const xml = zipEntry(readFileSync((await (await downloaded).path())!), 'word/document.xml');
+  expect(xml).toContain('Latest Word draft');
+  expect(xml).toContain('New line saved immediately.');
+  expect(xml).not.toContain('Previous document.');
+  expect(xml).toContain('<w:br/>');
+  await page.evaluate(() => {
+    window.print = () => { (window as any).printedText = document.querySelector('.markdown-pages')?.textContent; };
+  });
+  await page.locator('textarea').fill('**Latest PDF draft**\nAnother immediate line.');
+  await page.locator('button[title="Export as PDF (print)"]').click();
+  await expect.poll(() => page.evaluate(() => (window as any).printedText)).toContain('Latest PDF draft');
 });
