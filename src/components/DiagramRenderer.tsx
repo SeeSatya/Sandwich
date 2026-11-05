@@ -1,5 +1,6 @@
 import React from 'react';
 import ELK from 'elkjs/lib/elk.bundled.js';
+import type { ElkNode } from 'elkjs';
 import {
   DiagramDefinition,
   DiagramNode,
@@ -9,6 +10,7 @@ import {
 } from '../diagrams';
 import { AppTheme } from '../types';
 import { getDiagramEdgeColor } from '../diagrams/colors';
+import { fitDiagramSize } from '../diagrams/sizing';
 
 interface DiagramRendererProps {
   data: DiagramDefinition;
@@ -81,7 +83,7 @@ const createFallbackLayout = (data: DiagramDefinition) => {
 
 const layoutWithElk = async (data: DiagramDefinition) => {
   const defaults = getDiagramTypeDefaults(data.type);
-  const graph = {
+  const graph: ElkNode = {
     id: 'root',
     layoutOptions: {
       'elk.algorithm': 'layered',
@@ -298,7 +300,7 @@ const DiagramRenderer: React.FC<DiagramRendererProps> = ({ data, theme }) => {
         width="100%"
         height="auto"
         xmlns="http://www.w3.org/2000/svg"
-        style={{ display: 'block' }}
+        style={{ display: 'block', height: 'auto', maxWidth: fitDiagramSize(layout.width, layout.height).width, margin: '0 auto' }}
       >
         <defs>
           <marker
@@ -334,7 +336,7 @@ const DiagramRenderer: React.FC<DiagramRendererProps> = ({ data, theme }) => {
           fontSize="10"
           fontWeight="800"
           letterSpacing="1.4"
-          textTransform="uppercase"
+          style={{ textTransform: 'uppercase' }}
         >
           {data.type}
         </text>

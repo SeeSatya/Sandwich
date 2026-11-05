@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { startTransition, useState, useEffect, useMemo, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { generatePdf } from './services/pdfService';
 import { exportDocx } from './docxExport';
 import MarkdownPreview from './components/MarkdownPreview';
 import { AppTheme, DEFAULT_THEME, THEME_PRESETS } from './types';
 import { getChatGptDiagramPaste } from './diagrams/chatgptClipboard';
+import { waitForDiagramLayout } from './diagrams/readiness';
 import {
   DocumentTextIcon,
   DocumentArrowDownIcon,
@@ -187,6 +189,7 @@ function generateMaterialTheme(baseColor: string): AppTheme {
 
 function App() {
   const [markdown, setMarkdown] = useState<string>(INITIAL_MARKDOWN);
+  const [previewMarkdown, setPreviewMarkdown] = useState<string>(INITIAL_MARKDOWN);
   const [theme, setTheme] = useState<AppTheme>(DEFAULT_THEME);
   const [ignoreHr, setIgnoreHr] = useState<boolean>(true);
   const [wordWrap, setWordWrap] = useState<boolean>(true);
@@ -220,10 +223,27 @@ function App() {
   // Accordion for rarely-used code & AI settings
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
 
-  // Stats calculation
-  const wordCount = markdown.trim().split(/\s+/).filter(Boolean).length;
+  // Keep typing immediate. The memoized preview parses and paginates only
+  // after a brief pause, instead of doing that work inside every input event.
+  useEffect(() => {
+    if (markdown === previewMarkdown) return;
+    const timer = setTimeout(() => {
+      startTransition(() => setPreviewMarkdown(markdown));
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [markdown, previewMarkdown]);
+
+  const { wordCount, lineCount } = useMemo(() => ({
+    wordCount: previewMarkdown.trim().split(/\s+/).filter(Boolean).length,
+    lineCount: previewMarkdown.split('\n').length,
+  }), [previewMarkdown]);
   const charCount = markdown.length;
-  const lineCount = markdown.split('\n').length;
+
+  const flushPreview = () => {
+    // Export consumes the rendered DOM. Commit the current draft before
+    // waiting for diagram layout/pagination, even during the typing pause.
+    flushSync(() => setPreviewMarkdown(markdown));
+  };
 
   // Effect to update theme when color changes IF we are in Material Expressive mode
   useEffect(() => {
@@ -232,13 +252,21 @@ function App() {
     }
   }, [customColor]);
 
-  const handlePrint = () => {
-    window.print();
+  const handlePrint = async () => {
+    try {
+      flushPreview();
+      await waitForDiagramLayout();
+      window.print();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Unable to prepare the document for printing.');
+    }
   };
 
   const handleExportDoc = async () => {
+    flushPreview();
     setDocxProgress({ pct: 0, label: 'Starting…' });
     try {
+      await waitForDiagramLayout();
       await exportDocx(theme, (pct, label) => setDocxProgress({ pct, label }));
       setTimeout(() => setDocxProgress(null), 800);
     } catch (e) {
@@ -594,7 +622,7 @@ function App() {
                   value={markdown}
                   onChange={(e) => setMarkdown(e.target.value)}
                   onPaste={(event) => {
-                    const diagram = getChatGptDiagramPaste(event.clipboardData.getData('text/html'), theme.isDark);
+                    const diagram = getChatGptDiagramPaste(event.clipboardData.getData('text/html'), theme.isDark, event.clipboardData.getData('text/plain'));
                     if (!diagram) return;
 
                     event.preventDefault();
@@ -661,9 +689,9 @@ function App() {
                 </div>
 
                 {/* PDF rendering screen */}
-                <div className="flex-1 min-h-0 overflow-hidden print:block print:overflow-visible">
+                <div className="flex-1 min-h-0 overflow-hidden print:block print:overflow-visible" aria-busy={markdown !== previewMarkdown}>
                   <MarkdownPreview
-                    content={markdown}
+                    content={previewMarkdown}
                     theme={theme}
                     ignoreHr={ignoreHr}
                     fontSize={fontSize}
