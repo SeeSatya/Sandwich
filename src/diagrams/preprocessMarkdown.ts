@@ -2,6 +2,33 @@ import { AppTheme } from '../types';
 import { getDiagramEdgeColor } from './colors';
 import { protectMarkdownCode } from './markdownCode';
 
+const escapeCurrency = (text: string): string => {
+  // Keep complete inline/display formulas intact, while treating unmatched
+  // numeric dollars and pairs spanning price prose as currency. Otherwise
+  // remark-math consumes the prose between "$5" and "$10", including bold.
+  const math = Array.from(text.matchAll(/(?=(?<![\\$])(\$(?![\s$])(?:\\.|[^\\$\r\n]|\r?\n(?![ \t]*\r?\n))*?\$(?!\$)))/g))
+    .filter(match => {
+      const formula = match[1].slice(1, -1);
+      const next = text[match.index! + match[1].length] || '';
+      // Prices can pair with the opening dollar of another price/formula.
+      // Numeric equations still allow whitespace, line breaks, and digits
+      // after their closing delimiter, as supported by remark-math.
+      const prose = /^\d[\d,.]*\s+[a-zA-Z]{2,}/.test(formula);
+      const formatting = /\*\*|__|~~/.test(formula);
+      const operator = /[+\-=<>^/(){}]|\\[a-zA-Z]|(?<!\*)\*(?!\*)/.test(formula);
+      const priceSeparator = /^\d[\d,]*(?:\.\d+)?\s*[,;\-–—]\s*$/.test(formula) && /^\d/.test(next);
+      if (priceSeparator) return false;
+      return !(/^\d/.test(formula) && !operator &&
+        (formatting || (prose && /[a-zA-Z0-9]/.test(next))));
+    })
+    .map(match => ({ start: match.index!, end: match.index! + match[1].length }));
+  for (const match of text.matchAll(/(?<![\\$])\${2,}[\s\S]*?\${2,}/g)) {
+    math.push({ start: match.index!, end: match.index! + match[0].length });
+  }
+  return text.replace(/(?<![\\$])\$(?=\d)/g, (dollar, offset: number) =>
+    math.some(range => offset >= range.start && offset < range.end) ? dollar : '\\$');
+};
+
 export const preprocessMarkdown = (text: string, theme?: AppTheme): string => {
   if (!text) return '';
   const diagramEdgeColor = getDiagramEdgeColor(theme?.isDark ?? true);
@@ -21,6 +48,8 @@ export const preprocessMarkdown = (text: string, theme?: AppTheme): string => {
         `${indent}$$\n${indent}${formula.trim()}\n${indent}$$`)
       .replace(/\\\[([\s\S]*?)\\\]/g, (_match, formula: string) => `$${formula}$`)
       .replace(/\\\(([\s\S]*?)\\\)/g, (_match, formula: string) => `$${formula}$`);
+
+  text = escapeCurrency(text);
 
   // ChatGPT sometimes copies a rendered Mermaid graphic as its scoped CSS
   // followed by the SVG's visible labels, while dropping the actual SVG paths.

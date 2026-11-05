@@ -11,12 +11,17 @@ const paste = async (page: Page, html: string, plain = '') => {
     textarea.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData }));
   }, { html, plain });
 };
-const ready = async (page: Page, count: number) => {
-  await expect(page.locator('#markdown-source [data-diagram-state="ready"] svg')).toHaveCount(count);
-  await expect(page.locator('.markdown-pages [data-diagram-state="ready"] svg')).toHaveCount(count);
+const ready = async (page: Page, count: number, timeout = 30_000) => {
+  await expect(page.locator('#markdown-source [data-diagram-state="ready"] svg')).toHaveCount(count, { timeout });
+  await expect(page.locator('.markdown-pages [data-diagram-state="ready"] svg')).toHaveCount(count, { timeout });
 };
 
 test.beforeEach(async ({ page }) => {
+  await page.route('https://fonts.googleapis.com/**', route => route.fulfill({ contentType: 'text/css', body: '' }));
+  if (process.env.PLAYWRIGHT_TAILWIND_CACHE) {
+    const tailwind = readFileSync(process.env.PLAYWRIGHT_TAILWIND_CACHE);
+    await page.route('https://cdn.tailwindcss.com**', route => route.fulfill({ contentType: 'application/javascript', body: tailwind }));
+  }
   await page.goto('/', { waitUntil: 'commit' });
   await page.locator('textarea').waitFor({ timeout: 60_000 });
 });
@@ -133,12 +138,14 @@ test('wrapped flowchart edges remain a local best-effort fallback', async ({ pag
 });
 
 test('theme changes rerender all five diagrams with readable light and dark labels', async ({ page }) => {
+  // This case lays out the full sample three times, including two theme changes.
+  test.setTimeout(180_000);
   await page.locator('textarea').fill(fullDocument);
-  await ready(page, 5);
+  await ready(page, 5, 60_000);
   const themeSelector = page.locator('[title="Document theme"] select');
   for (const theme of ['Midnight', 'Modern Light']) {
     await themeSelector.selectOption({ label: theme });
-    await ready(page, 5);
+    await ready(page, 5, 60_000);
     // Wait for pagination to carry the newly themed SVGs as well.
     const expectedColor = theme === 'Midnight' ? 'rgb(248, 250, 252)' : 'rgb(31, 41, 55)';
     await expect.poll(() => page.locator('.markdown-pages .mermaid-container .nodeLabel').first().evaluate(label => getComputedStyle(label).color)).toBe(expectedColor);

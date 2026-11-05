@@ -1,4 +1,11 @@
+import { fromMarkdown } from 'mdast-util-from-markdown';
+
 interface CodeRange { start: number; end: number; language?: string }
+interface MarkdownNode {
+  type: string;
+  position?: { start: { offset?: number }; end: { offset?: number } };
+  children?: MarkdownNode[];
+}
 
 /** Fenced blocks close with the same marker and at least the opening length. */
 export const fencedCodeRanges = (text: string): CodeRange[] => {
@@ -28,12 +35,19 @@ export const hasMermaidSource = (text: string): boolean =>
 /** Hide code while prose extensions run, then restore it byte for byte. */
 export const protectMarkdownCode = (text: string) => {
   const ranges = fencedCodeRanges(text);
-  const inline = /(?<!`)(`+)(?!`)([\s\S]*?)(?<!`)\1(?!`)/g;
-  for (const match of text.matchAll(inline)) {
-    const start = match.index!;
-    const end = start + match[0].length;
-    if (!ranges.some(range => start < range.end && end > range.start)) ranges.push({ start, end });
-  }
+  // Use CommonMark's positions for inline and indented code. A backtick
+  // regex also matches escaped delimiters and misses indented blocks.
+  const visit = (node: MarkdownNode) => {
+    if (node.type === 'code' || node.type === 'inlineCode') {
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      if (start !== undefined && end !== undefined && !ranges.some(range => start < range.end && end > range.start)) {
+        ranges.push({ start, end });
+      }
+    }
+    node.children?.forEach(visit);
+  };
+  visit(fromMarkdown(text));
   ranges.sort((first, second) => first.start - second.start);
   let prefix = '\uE000MARKDOWN_CODE_';
   while (text.includes(prefix)) prefix += '_';

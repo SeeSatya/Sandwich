@@ -1426,8 +1426,10 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[rehypeRaw, rehypeKatex]}
             components={{
-              pre: ({ children }) => <div>{children}</div>,
-              code: ({ inline, className, children, ...props }: any) => {
+              pre: ({ children }) => <div>{React.Children.map(children, child =>
+                React.isValidElement(child) ? React.cloneElement(child as React.ReactElement<any>, { inline: false }) : child
+              )}</div>,
+              code: ({ inline = true, className, children, node, ...props }: any) => {
                 const match = /language-([\w-]+)/.exec(className || '');
                 const language = match ? match[1] : '';
                 const codeContent = String(children).replace(/\n$/, '');
@@ -1457,12 +1459,9 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                   );
                 }
 
-                // react-markdown v9+ no longer passes `inline` — infer it.
-                // Fenced blocks without a language must still render as blocks,
-                // otherwise multi-line code collapses into one nowrap line.
-                const isInline = inline ?? (!className && !codeContent.includes('\n'));
-
-                if (isInline) {
+                // A pre parent identifies block code, including a single line
+                // without a language. Inline spans may contain source newlines.
+                if (inline) {
                   return (
                     <code
                       className="px-1.5 py-0.5 rounded text-[0.9em]"

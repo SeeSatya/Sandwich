@@ -175,8 +175,8 @@ async function imgToPng(el: HTMLImageElement, maxW = MAX_W): Promise<{ data: Uin
 // --- inline runs ------------------------------------------------------------
 // `base` (font/color/bold) is applied to every run produced — set per block so
 // we never have to reconstruct runs afterward (docx doesn't expose run.options).
-interface RunBase { font?: string; color?: string; bold?: boolean; size?: number }
-function inlineRuns(node: Node, theme: AppTheme, base: RunBase = {}, fmt: { b?: boolean; i?: boolean; code?: boolean } = {}): (TextRun | ExternalHyperlink)[] {
+interface RunBase { font?: string; color?: string; bold?: boolean; size?: number; style?: string }
+function inlineRuns(node: Node, theme: AppTheme, base: RunBase = {}, fmt: { b?: boolean; i?: boolean; strike?: boolean; code?: boolean } = {}): (TextRun | ExternalHyperlink)[] {
   const out: (TextRun | ExternalHyperlink)[] = [];
   node.childNodes.forEach(child => {
     if (child.nodeType === Node.TEXT_NODE) {
@@ -185,6 +185,8 @@ function inlineRuns(node: Node, theme: AppTheme, base: RunBase = {}, fmt: { b?: 
         text,
         bold: fmt.b || base.bold,
         italics: fmt.i,
+        strike: fmt.strike,
+        style: base.style,
         size: base.size,
         font: fmt.code ? theme.fonts.code.replace(/['"]/g, '').split(',')[0].trim() : base.font,
         color: fmt.code ? hex(theme.colors.primary) : base.color,
@@ -202,11 +204,12 @@ function inlineRuns(node: Node, theme: AppTheme, base: RunBase = {}, fmt: { b?: 
     }
     if (tag === 'STRONG' || tag === 'B') { out.push(...inlineRuns(el, theme, base, { ...fmt, b: true })); return; }
     if (tag === 'EM' || tag === 'I') { out.push(...inlineRuns(el, theme, base, { ...fmt, i: true })); return; }
+    if (tag === 'DEL' || tag === 'S' || tag === 'STRIKE') { out.push(...inlineRuns(el, theme, base, { ...fmt, strike: true })); return; }
     if (tag === 'CODE') { out.push(...inlineRuns(el, theme, base, { ...fmt, code: true })); return; }
     if (tag === 'A') {
       out.push(new ExternalHyperlink({
         link: el.getAttribute('href') || '#',
-        children: [new TextRun({ text: el.textContent || '', style: 'Hyperlink' })],
+        children: inlineRuns(el, theme, { ...base, color: undefined, style: 'Hyperlink' }, fmt) as TextRun[],
       }));
       return;
     }
