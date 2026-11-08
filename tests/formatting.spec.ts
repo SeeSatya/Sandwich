@@ -244,3 +244,33 @@ test('exporting immediately after an edit flushes the latest text for Word and p
   await page.locator('button[title="Export as PDF (print)"]').click();
   await expect.poll(() => page.evaluate(() => (window as any).printedText)).toContain('Latest PDF draft');
 });
+
+test('print output uses A4 portrait with a Letter fallback at desktop and mobile widths', async ({ page }) => {
+  const paragraph = 'Printed content keeps the same A4 page layout across device widths. '.repeat(8);
+  await page.locator('textarea').fill(`# A4 print check\n\n${Array(12).fill(paragraph).join('\n\n')}`);
+  await expect(page.locator('.markdown-pages')).toContainText('A4 print check');
+
+  for (const viewport of [{ width: 1440, height: 1100 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    if (viewport.width < 768) {
+      await page.getByRole('button', { name: 'Read', exact: true }).click();
+    }
+    await expect.poll(() => page.locator('.markdown-pages > .page').count()).toBeGreaterThan(1);
+    await expect(page.locator('.markdown-pages')).toHaveAttribute('data-pagination-state', 'ready');
+    const pageCount = await page.locator('.markdown-pages > .page').count();
+    expect(pageCount).toBeGreaterThan(1);
+
+    // A CSS-aware print renderer should honor the requested paper size even
+    // when its fallback is Letter. This does not control native printer settings.
+    await page.emulateMedia({ media: 'print' });
+    const pdf = await page.pdf({ format: 'Letter', preferCSSPageSize: true, printBackground: true });
+    const boxes = [...pdf.toString('latin1').matchAll(/\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/g)];
+    expect(boxes).toHaveLength(pageCount);
+    for (const box of boxes) {
+      // PDF dimensions use points; Chromium rounds physical CSS dimensions.
+      expect(Math.abs(Number(box[1]) - 210 * 72 / 25.4)).toBeLessThan(1);
+      expect(Math.abs(Number(box[2]) - 297 * 72 / 25.4)).toBeLessThan(1);
+    }
+    await page.emulateMedia({ media: 'screen' });
+  }
+});

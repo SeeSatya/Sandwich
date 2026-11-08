@@ -165,6 +165,7 @@ Try changing the theme, adjusting fonts, or click **AI Style** for automatic sty
 
 type ViewMode = 'editor' | 'preview';
 type PaddingSize = 'small' | 'medium' | 'large';
+const DEFAULT_DOCUMENT_NAME = 'DocIT';
 
 function generateMaterialTheme(baseColor: string): AppTheme {
   return {
@@ -197,6 +198,10 @@ function App() {
   const printAreaRef = useRef<HTMLDivElement>(null);
 
   // Print Options
+  const [documentName, setDocumentName] = useState<string>('');
+  const documentTitle = documentName.trim() || DEFAULT_DOCUMENT_NAME;
+  const documentTitleRef = useRef(documentTitle);
+  documentTitleRef.current = documentTitle;
   const [paddingSize, setPaddingSize] = useState<PaddingSize>('medium');
   const [headerText, setHeaderText] = useState<string>('');
   const [showPageNumbers, setShowPageNumbers] = useState<boolean>(false);
@@ -222,6 +227,10 @@ function App() {
   const [isMobileSettingsOpen, setIsMobileSettingsOpen] = useState(false);
   // Accordion for rarely-used code & AI settings
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+
+  useEffect(() => {
+    document.title = documentTitle;
+  }, [documentTitle]);
 
   // Keep typing immediate. The memoized preview parses and paginates only
   // after a brief pause, instead of doing that work inside every input event.
@@ -256,6 +265,9 @@ function App() {
     try {
       flushPreview();
       await waitForDiagramLayout();
+      // Read the current name after layout settles, including edits made
+      // while printing is being prepared.
+      document.title = documentTitleRef.current;
       window.print();
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Unable to prepare the document for printing.');
@@ -283,9 +295,8 @@ function App() {
     }
   };
 
-  // ---- DocIT 5x4 settings grid ----
-  // Rule: max 5 rows; each row carries at most 4 columns. Rarely-used options
-  // live in the accordion, which itself obeys the same 5x4 limit.
+  // ---- DocIT settings grid ----
+  // Each row carries at most 4 columns. Rarely-used options live in the accordion.
   const gridSelect =
     'w-full bg-docit-surface text-docit-text text-xs font-semibold rounded-xl border border-docit-border py-2 px-2.5 ' +
     'focus:outline-none focus:border-docit-accent-glow transition-all cursor-pointer appearance-none truncate';
@@ -306,6 +317,20 @@ function App() {
 
   const renderSettingsControls = () => (
     <div className="space-y-2 text-docit-text">
+      <label className="block space-y-1.5">
+        <span className="text-xs font-bold">Document name</span>
+        <input
+          type="text"
+          aria-label="Document name"
+          value={documentName}
+          onChange={(e) => setDocumentName(e.target.value)}
+          placeholder={DEFAULT_DOCUMENT_NAME}
+          className="w-full bg-docit-surface text-docit-text text-xs font-semibold rounded-xl border border-docit-border py-2.5 px-2.5 focus:outline-none focus:border-docit-accent-glow transition-all placeholder:text-docit-text-tertiary"
+        />
+        <span className="block text-[10px] text-docit-text-muted">
+          Sets the browser tab title and suggested PDF filename when printing.
+        </span>
+      </label>
       {/* Row 1: theme preset (3 or 4 cols) + accent color (1 col, Material Expressive only) */}
       <div className="grid grid-cols-4 gap-2">
         <div className={`${theme.name === 'Material Expressive' ? 'col-span-3' : 'col-span-4'} relative`} title="Document theme">
@@ -464,10 +489,6 @@ function App() {
       {/* Dynamic print styles based on current theme */}
       <style>{`
         @media print {
-          @page {
-            margin: 0;
-            size: A4;
-          }
           html, body {
             background-color: ${theme.colors.background} !important;
             -webkit-print-color-adjust: exact !important;
