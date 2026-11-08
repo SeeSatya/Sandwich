@@ -73,6 +73,16 @@ Preview the production build locally:
 npm.cmd run preview
 ```
 
+## Printing and PDF Export
+
+The print button requests A4 portrait (210 × 297 mm) with zero page margins to match the preview. Browsers and printer drivers can override this request with their saved paper settings; if a device still selects another size, set A4 in that device's print dialog or printer preferences.
+
+Set **Document name** in Document settings to change the browser tab title and the suggested filename in Print → Save as PDF. Blank or whitespace-only names use `DocIT`; leading and trailing whitespace is removed from the title. The final filename remains editable in the browser's save dialog.
+
+## Syntax Reference
+
+See [the complete syntax guide](documention/syntax.md) for Markdown, images and image options, mathematics, Mermaid and JSON diagrams, copied SVG diagrams, columns, and rendered HTML, with examples and export limitations.
+
 ## AI Diagram Blocks
 
 MarkMind supports AI-friendly JSON diagram blocks in Markdown. Use a fenced `diagram` block:

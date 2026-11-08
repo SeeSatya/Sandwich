@@ -72,14 +72,16 @@
       scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
     }
 
+    /* One paper-size declaration, available when print settings initialize.
+       Match the preview's 210mm x 297mm page boxes to avoid extra sheets.
+       Browsers/printer drivers can still override this requested size. */
+    @page {
+      size: A4 portrait;
+      margin: 0;
+    }
+
     /* Print Specifics */
     @media print {
-      @page {
-        /* No browser margin - full bleed background */
-        margin: 0;
-        size: A4;
-      }
-
       /* Force color printing for all elements */
       * {
         -webkit-print-color-adjust: exact !important;

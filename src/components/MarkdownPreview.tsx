@@ -1380,13 +1380,6 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         }
 
         @media print {
-           /* Page the browser prints onto must match the .page box exactly,
-              otherwise a 297mm page spills a sliver onto a trailing sheet
-              (the "mostly-blank last page with a colored strip" bug). */
-           @page {
-             size: A4 portrait;
-             margin: 0;
-           }
            html, body {
              background: white !important;
              margin: 0 !important;
