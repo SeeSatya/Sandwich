@@ -32,16 +32,20 @@ import {
   CommandLineIcon
 } from '@heroicons/react/24/outline';
 
-const INITIAL_MARKDOWN = `# Project Documentation
+const INITIAL_MARKDOWN = `[align - center]
 
-Welcome to **MarkMind** - your premium markdown to PDF export tool.
+# Project Documentation
+
+[text - highlight] Welcome to **MarkMind** - your markdown to PDF and Word export tool.
 
 ## Features Overview
 
 MarkMind supports a wide range of markdown features:
 
 1. **Rich Text Formatting**
-   - Bold, italic, and strikethrough text
+   - Bold, italic, underline, strikethrough, and yellow highlighting
+   - One-block alignment with \`[align - center]\`
+   - Combined formats with \`[text - right - bold - highlight]\`
    - Inline \`code\` snippets
    - Block quotes and horizontal rules
 
@@ -60,7 +64,7 @@ MarkMind supports a wide range of markdown features:
    - Nested lists at any depth
    - Ordered and unordered lists
 
----
+[pagebreak]
 
 ## Code Example
 
@@ -153,6 +157,8 @@ graph LR
 | **Mermaid Diagrams** | ✅ Complete | Flowcharts, sequences |
 | **Theme Customization** | ✅ Complete | AI-powered themes |
 | **PDF Export** | ✅ Complete | A4 format |
+| **Word Export** | ✅ Complete | Native page breaks and text formatting |
+| **Page & Text Controls** | ✅ Complete | Page breaks, alignment, highlighting |
 
 ---
 

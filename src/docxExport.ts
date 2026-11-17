@@ -241,7 +241,9 @@ const mathRun = (asset: MathImage, maxW = MAX_W): ImageRun => {
   return new ImageRun({ type: 'png', data: asset.data, transformation: { width: Math.max(1, Math.round(asset.width * scale)), height: Math.max(1, Math.round(asset.height * scale)) } });
 };
 
-function inlineRuns(node: Node, theme: AppTheme, base: RunBase = {}, fmt: { b?: boolean; i?: boolean; strike?: boolean; code?: boolean } = {}): InlineRun[] {
+interface InlineFormat { b?: boolean; i?: boolean; strike?: boolean; code?: boolean; underline?: boolean; highlight?: boolean }
+
+function inlineRuns(node: Node, theme: AppTheme, base: RunBase = {}, fmt: InlineFormat = {}): InlineRun[] {
   const out: InlineRun[] = [];
   node.childNodes.forEach(child => {
     if (child.nodeType === Node.TEXT_NODE) {
@@ -251,10 +253,12 @@ function inlineRuns(node: Node, theme: AppTheme, base: RunBase = {}, fmt: { b?: 
         bold: fmt.b || base.bold,
         italics: fmt.i,
         strike: fmt.strike,
+        underline: fmt.underline ? {} : undefined,
+        highlight: fmt.highlight ? 'yellow' : undefined,
         style: base.style,
         size: base.size,
         font: fmt.code ? theme.fonts.code.replace(/['"]/g, '').split(',')[0].trim() : base.font,
-        color: fmt.code ? hex(theme.colors.primary) : base.color,
+        color: fmt.highlight ? '000000' : fmt.code ? hex(theme.colors.primary) : base.color,
       }));
       return;
     }
@@ -276,6 +280,8 @@ function inlineRuns(node: Node, theme: AppTheme, base: RunBase = {}, fmt: { b?: 
     if (tag === 'STRONG' || tag === 'B') { out.push(...inlineRuns(el, theme, base, { ...fmt, b: true })); return; }
     if (tag === 'EM' || tag === 'I') { out.push(...inlineRuns(el, theme, base, { ...fmt, i: true })); return; }
     if (tag === 'DEL' || tag === 'S' || tag === 'STRIKE') { out.push(...inlineRuns(el, theme, base, { ...fmt, strike: true })); return; }
+    if (tag === 'U') { out.push(...inlineRuns(el, theme, base, { ...fmt, underline: true })); return; }
+    if (tag === 'MARK') { out.push(...inlineRuns(el, theme, base, { ...fmt, highlight: true })); return; }
     if (tag === 'CODE') { out.push(...inlineRuns(el, theme, base, { ...fmt, code: true })); return; }
     if (tag === 'A') {
       out.push(new ExternalHyperlink({
@@ -293,7 +299,7 @@ const HSIZE: Record<string, number> = { H1: 36, H2: 28, H3: 24, H4: 20, H5: 18, 
 
 // Preserve syntax highlighting: walk the highlighter's token <span>s keeping each
 // token's color, split into lines, skip the line-number gutter + header label.
-function codeToDocx(wrapper: HTMLElement, theme: AppTheme): Paragraph[] {
+function codeToDocx(wrapper: HTMLElement, theme: AppTheme, breakBefore = false): Paragraph[] {
   const codeFont = theme.fonts.code.replace(/['"]/g, '').split(',')[0].trim();
   const bg = hex(theme.colors.codeBackground);
   const root = (wrapper.querySelector('code') || wrapper.querySelector('pre') || wrapper) as HTMLElement;
@@ -321,6 +327,7 @@ function codeToDocx(wrapper: HTMLElement, theme: AppTheme): Paragraph[] {
   walk(root);
   while (lines.length > 1 && lines[lines.length - 1].length === 0) lines.pop();
   return lines.map((runs, i) => new Paragraph({
+    pageBreakBefore: breakBefore && i === 0,
     spacing: { after: i === lines.length - 1 ? 160 : 0, line: 240 },
     shading: { fill: bg },
     children: runs.length ? runs : [new TextRun({ text: ' ', font: codeFont, size: 18 })],
@@ -328,8 +335,31 @@ function codeToDocx(wrapper: HTMLElement, theme: AppTheme): Paragraph[] {
 }
 
 // --- block elements ---------------------------------------------------------
-async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W, math = new Map<Element, MathImage>()): Promise<any[]> {
+const WORD_ALIGNMENT = {
+  left: AlignmentType.LEFT,
+  center: AlignmentType.CENTER,
+  right: AlignmentType.RIGHT,
+  justify: AlignmentType.JUSTIFIED,
+} as const;
+
+function explicitAlignment(el: HTMLElement): typeof WORD_ALIGNMENT[keyof typeof WORD_ALIGNMENT] | undefined {
+  const value = el.closest<HTMLElement>('[data-md-align]')?.dataset.mdAlign;
+  return value && value in WORD_ALIGNMENT ? WORD_ALIGNMENT[value as keyof typeof WORD_ALIGNMENT] : undefined;
+}
+
+// Tables have no paragraph-level pageBreakBefore property. A tiny, unspaced
+// paragraph anchors the table on the new page without adding an extra sheet.
+const tablePageBreak = (): Paragraph => new Paragraph({
+  pageBreakBefore: true,
+  keepNext: true,
+  spacing: { before: 0, after: 0, line: 1 },
+  children: [new TextRun({ text: '', size: 1 })],
+});
+
+async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W, math = new Map<Element, MathImage>(), breakBefore = false): Promise<any[]> {
   const tag = el.tagName.toUpperCase();
+  if (el.hasAttribute('data-md-pagebreak')) return [];
+  const alignment = explicitAlignment(el);
   const headFont = theme.fonts.heading.replace(/['"]/g, '').split(',')[0].trim();
   const bodyFont = theme.fonts.body.replace(/['"]/g, '').split(',')[0].trim();
 
@@ -350,17 +380,31 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W, math 
         borders: { top: none, bottom: none, left: none, right: none },
       }));
     }
-    return [new Table({
+    return [...(breakBefore ? [tablePageBreak()] : []), new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
       rows: [new TableRow({ children: cells })],
       borders: { top: none, bottom: none, left: none, right: none, insideHorizontal: none, insideVertical: none },
     })];
   }
 
-  // Mermaid / generated diagram → vector SVG (+ PNG fallback)
-  const svg = el.classList.contains('mermaid-container')
-    ? el.querySelector('svg')
-    : el.querySelector('.mermaid-container svg');
+  // Markdown can wrap a standalone raw SVG in a paragraph. Only unwrap
+  // SVG-only paragraphs: other paragraphs retain all their prose and formats.
+  if (tag === 'P' && el.children.length > 0 && Array.from(el.childNodes).every(node =>
+    node.nodeType === Node.TEXT_NODE ? !node.textContent?.trim()
+      : node.nodeType === Node.ELEMENT_NODE && (node as Element).localName === 'svg',
+  )) {
+    const out: any[] = [];
+    for (const child of Array.from(el.children)) {
+      out.push(...await blockToDocx(child as HTMLElement, theme, maxW, math, breakBefore && out.length === 0));
+    }
+    return out;
+  }
+
+  // Rendered diagrams → vector SVG (+ PNG fallback). Generated JSON diagrams
+  // and ordinary SVGs reach this branch through wrapper recursion; inspecting
+  // arbitrary wrappers for a descendant SVG would discard their other content.
+  const svg = tag === 'SVG' ? el as unknown as SVGSVGElement
+    : el.classList.contains('mermaid-container') ? el.querySelector<SVGSVGElement>('svg') : null;
   if (svg) {
     const rect = svg.getBoundingClientRect();
     const naturalSize = diagramViewBoxSize(svg.getAttribute('viewBox'));
@@ -373,7 +417,8 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W, math 
     const svgStr = new XMLSerializer().serializeToString(flat);
     const png = await svgToPng(flat, w, h);
     return [new Paragraph({
-      alignment: AlignmentType.CENTER,
+      pageBreakBefore: breakBefore,
+      alignment: alignment ?? AlignmentType.CENTER,
       children: [new ImageRun({
         type: 'svg',
         // ponytail: docx base64-decodes string data — pass SVG as bytes to avoid atob
@@ -389,15 +434,16 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W, math 
   if (el.classList.contains('katex-display')) {
     const formula = el.querySelector('.katex');
     const asset = formula ? math.get(formula) : undefined;
-    return asset ? [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 80, after: 120 }, children: [mathRun(asset, maxW)] })] : [];
+    return asset ? [new Paragraph({ pageBreakBefore: breakBefore, alignment: alignment ?? AlignmentType.CENTER, spacing: { before: 80, after: 120 }, children: [mathRun(asset, maxW)] })] : [];
   }
 
   if (/^H[1-6]$/.test(tag)) {
     // Academic: 16pt (H1) / 14pt (H2) / 12pt (H3+) bold, left-aligned, single spacing.
     const acSize: Record<string, number> = { H1: 32, H2: 28, H3: 24, H4: 24, H5: 24, H6: 24 };
     return [new Paragraph({
+      pageBreakBefore: breakBefore,
       heading: academic ? undefined : HeadingLevel[`HEADING_${tag[1]}` as keyof typeof HeadingLevel],
-      alignment: academic ? AlignmentType.LEFT : undefined,
+      alignment: alignment ?? (academic ? AlignmentType.LEFT : undefined),
       spacing: academic ? { before: 240, after: 120, line: 240 } : { before: 240, after: 120 },
       children: inlineRuns(el, theme, {
         math, maxW,
@@ -413,13 +459,14 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W, math 
       const out: any[] = [];
       for (const im of imgs) {
         const p = await imgToPng(im, maxW);
-        if (p) out.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new ImageRun({ type: 'png', data: p.data, transformation: { width: p.w, height: p.h } } as any)] }));
+        if (p) out.push(new Paragraph({ pageBreakBefore: breakBefore && out.length === 0, alignment: alignment ?? AlignmentType.CENTER, children: [new ImageRun({ type: 'png', data: p.data, transformation: { width: p.w, height: p.h } } as any)] }));
       }
       return out;
     }
     return [new Paragraph({
+      pageBreakBefore: breakBefore,
       // Academic: 12pt justified, 1.5 line spacing.
-      alignment: academic && tag === 'P' ? AlignmentType.JUSTIFIED : undefined,
+      alignment: alignment ?? (academic && tag === 'P' ? AlignmentType.JUSTIFIED : undefined),
       spacing: academic ? { after: 160, line: 360 } : { after: 160, line: 276 },
       indent: tag === 'BLOCKQUOTE' ? { left: 480 } : undefined,
       border: tag === 'BLOCKQUOTE' ? { left: { style: BorderStyle.SINGLE, size: 18, color: hex(theme.colors.primary), space: 12 } } : undefined,
@@ -427,29 +474,29 @@ async function blockToDocx(el: HTMLElement, theme: AppTheme, maxW = MAX_W, math 
     })];
   }
 
-  if (tag === 'UL' || tag === 'OL') return listToDocx(el, theme, tag === 'OL', 0, maxW, math);
+  if (tag === 'UL' || tag === 'OL') return listToDocx(el, theme, tag === 'OL', 0, maxW, math, breakBefore);
 
-  if (tag === 'PRE' || el.querySelector('pre') || el.classList.contains('code-block-wrapper')) {
-    return codeToDocx(el, theme);
+  if (tag === 'PRE' || el.classList.contains('code-block-wrapper')) {
+    return codeToDocx(el, theme, breakBefore);
   }
 
-  if (tag === 'TABLE') return [tableToDocx(el, theme, maxW, math)];
+  if (tag === 'TABLE') return [...(breakBefore ? [tablePageBreak()] : []), tableToDocx(el, theme, maxW, math)];
 
-  if (tag === 'HR') return [new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: hex(theme.colors.border || theme.colors.secondary) } }, spacing: { after: 200 } })];
+  if (tag === 'HR') return [new Paragraph({ pageBreakBefore: breakBefore, border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: hex(theme.colors.border || theme.colors.secondary) } }, spacing: { after: 200 } })];
 
   // image directly
   if (tag === 'IMG') {
     const p = await imgToPng(el as HTMLImageElement, maxW);
-    return p ? [new Paragraph({ alignment: AlignmentType.CENTER, children: [new ImageRun({ type: 'png', data: p.data, transformation: { width: p.w, height: p.h } } as any)] })] : [];
+    return p ? [new Paragraph({ pageBreakBefore: breakBefore, alignment: alignment ?? AlignmentType.CENTER, children: [new ImageRun({ type: 'png', data: p.data, transformation: { width: p.w, height: p.h } } as any)] })] : [];
   }
 
   // wrapper div etc — recurse into children
   const out: any[] = [];
-  for (const c of Array.from(el.children)) out.push(...await blockToDocx(c as HTMLElement, theme, maxW, math));
+  for (const c of Array.from(el.children)) out.push(...await blockToDocx(c as HTMLElement, theme, maxW, math, breakBefore && out.length === 0));
   return out;
 }
 
-function listToDocx(list: HTMLElement, theme: AppTheme, ordered: boolean, level: number, maxW: number, math: Map<Element, MathImage>): Paragraph[] {
+function listToDocx(list: HTMLElement, theme: AppTheme, ordered: boolean, level: number, maxW: number, math: Map<Element, MathImage>, breakBefore = false): Paragraph[] {
   const bodyFont = theme.fonts.body.replace(/['"]/g, '').split(',')[0].trim();
   const academic = isAcademic(theme);
   const out: Paragraph[] = [];
@@ -458,6 +505,8 @@ function listToDocx(list: HTMLElement, theme: AppTheme, ordered: boolean, level:
     const nested = Array.from(li.children).filter(c => /^(UL|OL)$/.test(c.tagName.toUpperCase())) as HTMLElement[];
     // Read the original nodes so per-formula assets retain their identity.
     out.push(new Paragraph({
+      pageBreakBefore: breakBefore && out.length === 0,
+      alignment: explicitAlignment(li as HTMLElement),
       spacing: academic ? { after: 80, line: 360 } : { after: 80 },
       ...(ordered ? { numbering: { reference: 'num', level } } : { bullet: { level } }),
       children: inlineRuns(li, theme, { math, maxW, skipLists: true, font: bodyFont, color: hex(theme.colors.text), size: academic ? 24 : undefined }),
@@ -479,6 +528,7 @@ function tableToDocx(table: HTMLElement, theme: AppTheme, maxW: number, math: Ma
       return new TableCell({
         shading: isHead ? { fill: headFill } : undefined,
         children: [new Paragraph({
+          alignment: WORD_ALIGNMENT[(cell as HTMLElement).style.textAlign as keyof typeof WORD_ALIGNMENT] ?? explicitAlignment(cell as HTMLElement),
           children: inlineRuns(cell as HTMLElement, theme, { math, maxW: maxW / Math.max(tr.children.length, 1) - 16, font: bodyFont, color: hex(isHead ? theme.colors.heading : theme.colors.text), bold: isHead, size: academic ? 21 : undefined }),
         })],
       });
@@ -520,9 +570,19 @@ export async function exportDocx(
       el => (el as HTMLElement).textContent?.trim() !== 'Generated Diagram',
     );
     const children: any[] = [];
+    let pendingBreak = false;
     for (let i = 0; i < blocks.length; i++) {
       onProgress?.(Math.round((i / blocks.length) * 90), `Converting content ${i + 1}/${blocks.length}…`);
-      children.push(...await blockToDocx(blocks[i] as HTMLElement, theme, MAX_W, math));
+      const block = blocks[i] as HTMLElement;
+      if (block.hasAttribute('data-md-pagebreak')) {
+        pendingBreak = children.length > 0;
+        continue;
+      }
+      const converted = await blockToDocx(block, theme, MAX_W, math, pendingBreak);
+      if (converted.length) {
+        children.push(...converted);
+        pendingBreak = false;
+      }
       await new Promise(r => setTimeout(r)); // yield so the progress bar can paint
     }
     onProgress?.(95, 'Packaging document…');
