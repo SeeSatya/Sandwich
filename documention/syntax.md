@@ -5,6 +5,8 @@ Write these examples in the Markdown editor. The preview supports ordinary Markd
 ## Contents
 
 - [Text, headings, and line breaks](#text-headings-and-line-breaks)
+- [Page breaks](#page-breaks)
+- [Text alignment and formatting prefixes](#text-alignment-and-formatting-prefixes)
 - [Links and images](#links-and-images)
 - [Lists, quotes, tables, and rules](#lists-quotes-tables-and-rules)
 - [Footnotes](#footnotes)
@@ -43,6 +45,88 @@ Setext headings also work: a line of `===` below text makes a level-one heading;
 Blank lines separate paragraphs. A single newline inside a paragraph creates a visible line break in this app. Standard Markdown hard breaks (two spaces at the end of a line, or a trailing backslash) and `<br>` also work.
 
 Escape Markdown punctuation with a backslash, such as `\*literal asterisks\*` or `\# not a heading`. Use code spans when showing syntax literally. HTML entities such as `&amp;` and `&lt;` are supported.
+
+## Page breaks
+
+Put `[pagebreak]` on its own line at the document root, with blank lines around it:
+
+```markdown
+# Cover
+
+Cover text.
+
+[pagebreak]
+
+# Main content
+
+This starts on a new page.
+```
+
+The following content starts on a fresh page in the A4 preview and PDF. DOCX contains a native Word page break. Automatic pagination still handles content that overflows a page. Leading, trailing, and consecutive page breaks do not create empty pages, and the marker itself is hidden.
+
+Use the exact lowercase keyword without indentation. A marker inside ordinary text, inline code, fenced or indented code, a list, a blockquote, a table cell, columns, or rendered HTML does not act as a page break. Escape it as `\[pagebreak]` to show literal text. `---` remains a horizontal rule and `<!-- pagebreak -->` remains a hidden comment.
+
+## Text alignment and formatting prefixes
+
+Use `[align - OPTION]` with exactly one alignment option to align one block, or `[text - OPTION - OPTION]` to combine alignment and formatting. Separate options with a spaced hyphen (` - `) and use lowercase keywords and options.
+
+```markdown
+[align - center]
+
+# Centered heading
+
+[text - right - bold - highlight - underline] A formatted paragraph with *italic words* and [a link](https://example.com).
+
+[align - justify]
+
+This paragraph is justified. It can contain normal **Markdown**.
+
+This later paragraph uses the theme's default alignment.
+
+[text - italic - strike]
+
+> This quotation is italic and struck through.
+
+[align - right]
+
+- This list is right aligned.
+- Its items remain a real list.
+```
+
+| Option | Prefix | Result |
+| --- | --- | --- |
+| `left` | `align` or `text` | Left-aligned text |
+| `center` | `align` or `text` | Centered text |
+| `right` | `align` or `text` | Right-aligned text |
+| `justify` | `align` or `text` | Justified text; Word uses its native justification |
+| `bold` | `text` | Bold text |
+| `italic` | `text` | Italic text |
+| `underline` | `text` | Underlined text |
+| `strike` | `text` | Struck-through text |
+| `highlight` | `text` | Yellow text highlighting with readable dark text |
+
+A standalone prefix applies to the **immediately following supported block**: a paragraph, heading, list, blockquote, or table. Put a blank line between the prefix and that block. A same-line prefix applies to the remaining paragraph text; it does not turn a following `#` into a heading. Formatting a list, quote, or table retains its native structure and applies to its text.
+
+Scope is exactly one block. Prefixes are not persistent document settings, and they cannot be stacked as separate directive paragraphs; combine options in one `[text - ...]` prefix. When alignment options in a `text` prefix conflict, the last one wins. `[text - left - center]` therefore centers its block. Repeating a formatting option has no additional effect.
+
+Explicit alignment overrides theme defaults, including Academic Report and Pixelize. An explicitly aligned GFM table column retains its cell alignment instead of inheriting the table prefix. Standard Markdown formatting, links, inline code, and mathematics remain usable within the block.
+
+Prefixes must be at the document root without indentation. They do not execute inside lists, quotes, table cells, columns, HTML, or code. Unknown options, malformed prefixes, a standalone prefix at the end of the document, and a prefix before an unsupported block remain literal. A fenced diagram/code block, horizontal rule, display-math block, raw HTML block, or another directive is not a supported target. For example, `[text - rainbow]` is ordinary text. Escape the opening bracket as `\[align - center]` or use a code span to show a prefix literally.
+
+For only part of a sentence, use semantic inline HTML:
+
+```markdown
+Normal text, <mark>highlighted **words**</mark>, and <u>underlined words</u>.
+```
+
+Both `<mark>` and `<u>` retain their formatting in preview, PDF, and DOCX, including in links, list items, and table cells. `==highlight==` is not a supported shorthand.
+
+| Feature | Preview | PDF | DOCX |
+| --- | --- | --- | --- |
+| `[pagebreak]` | New A4 page | New printed page | Native Word page break |
+| `[align - ...]` | Explicit text alignment | Same rendered alignment | Native paragraph/cell alignment |
+| `[text - ...]` | Combined text formats | Same rendered formats | Native Word text formats |
+| `<mark>` / `<u>` | Highlight / underline | Highlight / underline | Native highlight / underline |
 
 ## Links and images
 
@@ -371,6 +455,7 @@ Raw HTML can appear directly in Markdown:
 
 ```html
 <u>Underlined text</u>
+<mark>Highlighted text</mark>
 <span style="color:royalblue">Colored text</span>
 <br>
 <img src="https://example.com/photo.png" alt="Photo" width="300">
@@ -404,8 +489,10 @@ Raw HTML and `html-render` are not passed through the diagram SVG sanitizer. Onl
 
 Use the separate **Running header** setting for text repeated at the top of pages. Themes, page margins, font sizes, page numbers, and code styling are UI settings rather than Markdown directives.
 
-Content is automatically paginated into A4 preview pages. There is no custom manual page-break syntax; `---` is only a horizontal rule, and `<!-- pagebreak -->` is only a hidden comment. Browser CSS page-break styles are not a guaranteed command to the preview paginator. Diagrams and visual blocks are kept together when possible; oversized visuals may be scaled. Print waits for the latest preview and diagram layout before opening the dialog. Browser/printer paper settings can override the requested A4 portrait size.
+Content is automatically paginated into A4 preview pages. Use the documented `[pagebreak]` marker to start following content on a fresh page; leading, trailing, and consecutive markers do not add empty pages. `---` is only a horizontal rule, and `<!-- pagebreak -->` is only a hidden comment. Browser CSS page-break styles are not a guaranteed command to the preview paginator. Diagrams and visual blocks are kept together when possible; oversized visuals may be scaled. Print waits for the latest preview and diagram layout before opening the dialog. Browser/printer paper settings can override the requested A4 portrait size.
 
 PDF printing uses the rendered page appearance. Word export converts the rendered content and includes supported text formatting, lists, tables, images, and diagrams, but arbitrary HTML/CSS and columns need not retain the exact browser layout. Remote images that cannot be loaded for canvas conversion, including images blocked by cross-origin restrictions, can be omitted from Word export. Mathematics is exported as rendered images to preserve its appearance. Always review a document with custom HTML or complex layout in the target format.
+
+The page-break and text-control prefixes are supported in both export formats. DOCX uses native page breaks, paragraph alignment, highlight, and underline rather than arbitrary browser CSS. Word may paginate overflowing content differently because its fonts and layout engine differ from the browser. See [the chatbot instructions](chatbot-instructions.md) for a self-contained guide that can be copied into another chatbot.
 
 YAML front matter, MDX/JSX components, executable code, and arbitrary `:::` directives have no dedicated support in this app. Use ordinary Markdown or one of the documented formats instead.

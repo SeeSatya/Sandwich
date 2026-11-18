@@ -1,6 +1,6 @@
 # MarkMind PDF
 
-MarkMind PDF is a React/Vite markdown editor and live PDF-style preview tool. It supports markdown, tables, Mermaid diagrams, themed code blocks, document styling, and PDF export from the browser.
+MarkMind PDF is a React/Vite markdown editor and live PDF-style preview tool. It supports markdown, tables, Mermaid diagrams, themed code blocks, document styling, and PDF and Word (DOCX) export.
 
 ## Prerequisites
 
@@ -81,7 +81,25 @@ Set **Document name** in Document settings to change the browser tab title and t
 
 ## Syntax Reference
 
-See [the complete syntax guide](documention/syntax.md) for Markdown, images and image options, mathematics, Mermaid and JSON diagrams, copied SVG diagrams, columns, and rendered HTML, with examples and export limitations.
+See [the complete syntax guide](documention/syntax.md) for Markdown, page breaks, text alignment and highlighting, images and image options, mathematics, diagrams, columns, and rendered HTML, with examples and export limitations.
+
+Copy [the self-contained chatbot instructions](documention/chatbot-instructions.md) into another chatbot to generate Markdown that works in this app.
+
+Use `[pagebreak]` on its own line, separated from surrounding content by blank lines, to start the following content on a fresh page in the preview, PDF, and DOCX. A text prefix applies to one block:
+
+```markdown
+[align - center]
+
+# Centered title
+
+[text - right - bold - highlight - underline] An emphasized paragraph.
+
+[pagebreak]
+
+## A new page
+```
+
+Alignment options are `left`, `center`, `right`, and `justify`. Text options also include `bold`, `italic`, `underline`, `strike`, and yellow `highlight`. Put a standalone prefix before a heading, paragraph, list, blockquote, or table; same-line prefixes apply to paragraphs. These directives belong at the document root and do not change later blocks. Use `<mark>highlighted words</mark>` and `<u>underlined words</u>` for part of a sentence.
 
 ## AI Diagram Blocks
 

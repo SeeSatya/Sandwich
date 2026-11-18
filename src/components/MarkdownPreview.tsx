@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import remarkBreaks from 'remark-breaks';
+import remarkTextControls from '../markdown/textControls';
 import rehypeRaw from 'rehype-raw';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
@@ -366,9 +367,37 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     };
 
+    const hasRenderedContent = (element: HTMLElement): boolean => {
+      if (element.hasAttribute('data-md-pagebreak')) return false;
+      const style = getComputedStyle(element);
+      if (style.display === 'none') return false;
+      // The source/measurement hosts are intentionally visibility:hidden.
+      // Recognize semantic visuals without requiring visible host geometry.
+      if (element.matches('img, svg, iframe, video, audio, canvas, object, embed, input, textarea, select, button, hr, br, pre, li, .code-block-wrapper, .html-render-block, .mermaid-container, .diagram-container, .katex-display')) return true;
+      if (Array.from(element.childNodes).some(node =>
+        node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim())
+      )) return true;
+      if (Array.from(element.children).some(child => hasRenderedContent(child as HTMLElement))) return true;
+      // An intentionally painted HTML box is content even without text.
+      // Plain empty wrappers and their margins are not a reason to create a
+      // page, but backgrounds/borders must survive author-supplied HTML.
+      const rect = element.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return false;
+      const paintedColor = (color: string) => color !== 'transparent' && !/rgba\([^)]*,\s*0\s*\)$/.test(color);
+      return style.backgroundImage !== 'none' || paintedColor(style.backgroundColor) ||
+        ['Top', 'Right', 'Bottom', 'Left'].some(side =>
+          parseFloat(style[`border${side}Width` as keyof CSSStyleDeclaration] as string) > 0 &&
+          paintedColor(style[`border${side}Color` as keyof CSSStyleDeclaration] as string)
+        );
+    };
+
     const paginate = () => {
-      const children = Array.from(source.children) as HTMLElement[];
-      if (children.length === 0) {
+      // Filtering empty containers also makes both sides of an explicit
+      // break, and heading keep-with-next, operate on actual page content.
+      const children = (Array.from(source.children) as HTMLElement[]).filter(child =>
+        child.hasAttribute('data-md-pagebreak') || hasRenderedContent(child)
+      );
+      if (children.length === 0 || children.every(child => child.hasAttribute('data-md-pagebreak'))) {
         target.replaceChildren();
         target.dataset.paginationState = 'ready';
         return;
@@ -847,6 +876,12 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       }
 
       children.forEach((element, elementIndex) => {
+        if (element.hasAttribute('data-md-pagebreak')) {
+          // A break starts following content on a fresh sheet, never an empty
+          // leading, trailing or consecutive sheet of its own.
+          if (hasContent() && children.slice(elementIndex + 1).some(child => !child.hasAttribute('data-md-pagebreak'))) newPage();
+          return;
+        }
         const isList = element.tagName === 'OL' || element.tagName === 'UL';
         const isTable = element.tagName === 'TABLE';
         const isHeading = /^H[1-6]$/.test(element.tagName);
@@ -859,7 +894,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         // source-document offsets: test the heading and the first semantic unit
         // of its successor directly in the current page's DOM.
         const nextElement = children[elementIndex + 1];
-        if (isHeading && nextElement && hasContent()) {
+        if (isHeading && nextElement && !nextElement.hasAttribute('data-md-pagebreak') && hasContent()) {
           const headingProbe = element.cloneNode(true) as HTMLElement;
           stripIds(headingProbe);
           currentPage.content.appendChild(headingProbe);
@@ -1309,8 +1344,21 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           }
           ` : ''}
 
-
-
+          /* Author prefixes override theme defaults on the original semantic
+             blocks. Attributes survive every pagination fragment and export. */
+          ${['left', 'center', 'right', 'justify'].map(alignment => `
+          .page.page [data-md-align="${alignment}"]:not(.html-render-block *, .mermaid-container *) {
+            text-align: ${alignment} !important;
+          }`).join('')}
+          .page [data-md-pagebreak] { display: none; }
+          .page.page mark:not(.html-render-block *, .mermaid-container *),
+          .page.page mark :is(a, strong, em, del, u, code):not(.html-render-block *, .mermaid-container *) {
+            background-color: #fff176 !important;
+            color: #111827 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .page u:not(.html-render-block *, .mermaid-container *) { text-decoration-line: underline; }
           table:not(.html-render-block *, .mermaid-container *) {
             width: 100%;
             max-width: 100%;
@@ -1428,7 +1476,7 @@ const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         <div className={`page markdown-source-page ${paginationThemeClass}`.trim()} aria-hidden="true">
           <div ref={sourceRef} id="markdown-source" className="page-content markdown-source">
             <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
+            remarkPlugins={[remarkGfm, remarkMath, remarkTextControls, remarkBreaks]}
             rehypePlugins={[rehypeRaw, rehypeKatex]}
             components={{
               pre: ({ children }) => <div>{React.Children.map(children, child =>
